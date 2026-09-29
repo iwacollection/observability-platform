@@ -6,10 +6,17 @@
 #   logs     -> Loki native OTLP (/otlp/v1/logs)
 #   traces   -> Tempo OTLP gRPC
 #   profiles -> Pyroscope OTLP gRPC on :4040 (Pyroscope does not speak OTLP/HTTP)
+#
+# Label policy enforced here (see docs/onboarding.md and docs/data-skew.md):
+#   delete identifiers and raw URLs on every signal that supports the
+#   attributes processor. Business label values that are not on the
+#   allow-list are rewritten to "other" by the transform processor.
 
 extensions:
   health_check:
     endpoint: 0.0.0.0:13133
+  zpages:
+    endpoint: 0.0.0.0:55679
 
 receivers:
   otlp:
@@ -25,6 +32,76 @@ processors:
     check_interval: 1s
     limit_percentage: 75
     spike_limit_percentage: 20
+  attributes/sanitize:
+    actions:
+      - key: user.id
+        action: delete
+      - key: order.id
+        action: delete
+      - key: customer.id
+        action: delete
+      - key: enduser.id
+        action: delete
+      - key: http.url
+        action: delete
+      - key: http.target
+        action: delete
+      - key: url.full
+        action: delete
+      - key: url.query
+        action: delete
+      - key: url.path
+        action: delete
+      - key: http.request.header.cookie
+        action: delete
+  # Drop datapoints whose route label contains a query string. The demo
+  # server records the path only; this is the backstop if a client SDK
+  # puts "?user=..." into http.route.
+  filter/query_in_route:
+    error_mode: ignore
+    metrics:
+      datapoint:
+        - 'IsMatch(attributes["http.route"], ".*\\?.*")'
+    traces:
+      span:
+        - 'IsMatch(attributes["http.route"], ".*\\?.*")'
+    logs:
+      log_record:
+        - 'IsMatch(attributes["http.route"], ".*\\?.*")'
+  transform/business_labels:
+    error_mode: ignore
+    metric_statements:
+      - context: datapoint
+        statements:
+          - set(attributes["channel"], "other") where metric.name == "business.orders.created" and attributes["channel"] != nil and attributes["channel"] != "web" and attributes["channel"] != "api" and attributes["channel"] != "other"
+          - set(attributes["method"], "other") where metric.name == "business.payments" and attributes["method"] != nil and attributes["method"] != "card" and attributes["method"] != "wallet" and attributes["method"] != "other"
+          - set(attributes["result"], "failure") where metric.name == "business.payments" and attributes["result"] != nil and attributes["result"] != "success" and attributes["result"] != "failure"
+          - set(attributes["result"], "failure") where metric.name == "business.checkout.duration" and attributes["result"] != nil and attributes["result"] != "success" and attributes["result"] != "failure"
+          - set(attributes["segment"], "anonymous") where metric.name == "business.users.active" and attributes["segment"] != nil and attributes["segment"] != "anonymous" and attributes["segment"] != "authenticated"
+  # Tail sampling delays export by decision_wait. Policies are OR'd:
+  # errors and slow traces are always kept. baseline is 100 so this
+  # single-node stack still shows every demo trace. Lower
+  # sampling_percentage to shed volume; do not delete the error policy
+  # or success-only traffic will hide failures (sampling bias).
+  # Mitigation example (not active):
+  #   sampling_percentage: 10
+  tail_sampling:
+    decision_wait: 5s
+    num_traces: 50000
+    expected_new_traces_per_sec: 64
+    policies:
+      - name: errors
+        type: status_code
+        status_code:
+          status_codes: [ERROR]
+      - name: slow
+        type: latency
+        latency:
+          threshold_ms: 500
+      - name: baseline
+        type: probabilistic
+        probabilistic:
+          sampling_percentage: 100
   batch:
     timeout: 5s
     send_batch_size: 1024
@@ -53,7 +130,7 @@ exporters:
       insecure: true
 
 service:
-  extensions: [health_check]
+  extensions: [health_check, zpages]
   telemetry:
     logs:
       level: info
@@ -68,17 +145,18 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, attributes/sanitize, filter/query_in_route, transform/business_labels, batch]
       exporters: [prometheusremotewrite]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, attributes/sanitize, filter/query_in_route, batch]
       exporters: [otlphttp/loki]
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [memory_limiter, attributes/sanitize, filter/query_in_route, tail_sampling, batch]
       exporters: [otlp/tempo]
-    # batch does not implement the profiles signal in collector 0.161.
+    # batch, attributes, filter, and tail_sampling do not implement profiles
+    # in collector 0.161. Keep this pipeline on memory_limiter only.
     profiles:
       receivers: [otlp]
       processors: [memory_limiter]

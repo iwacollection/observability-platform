@@ -50,6 +50,17 @@ flowchart LR
 
 更细的职责划分、标签约定和「为什么 Compose 与 Kubernetes 能共用配置」写在 [docs/architecture.md](docs/architecture.md)。
 
+五层监控和运维说明：
+
+| 文档 | 内容 |
+| --- | --- |
+| [docs/metrics-catalog.md](docs/metrics-catalog.md) | 五层指标：名字、类型、标签、来源、PromQL、告警、仪表盘 |
+| [docs/debugging.md](docs/debugging.md) | 没有点、抓取失败、没有日志 / 链路 / Profile、告警不响、Collector 导出失败 |
+| [docs/onboarding.md](docs/onboarding.md) | OTLP、抓取、远程写、Loki、中间件 exporter、业务仪器和标签允许表 |
+| [docs/processing.md](docs/processing.md) | Collector 处理器、记录规则、Loki 限制、保留时间 |
+| [docs/data-skew.md](docs/data-skew.md) | 高基数、热点、日志流、采样偏差、丢弃，以及仓库里的改前改后配置 |
+| [docs/slo.md](docs/slo.md) | HTTP 可用性与延迟的多窗口烧录 |
+
 本地发布端口全部绑在 `127.0.0.1`。容器内部仍然监听 `0.0.0.0`，这样同一 Docker 网络里的组件能互相访问。
 
 | 组件 | 容器端口 | 本机地址 | 用途 |
@@ -58,13 +69,24 @@ flowchart LR
 | Demo | 8080 | http://127.0.0.1:8080 | 示例业务 |
 | OTel Collector gRPC | 4317 | 127.0.0.1:4317 | 应用 OTLP |
 | OTel Collector HTTP | 4318 | 127.0.0.1:4318 | 应用 OTLP |
-| Collector 自身指标 | 8888 | 仅容器网络 | Prometheus 抓取 |
 | Prometheus | 9090 | http://127.0.0.1:9090 | 指标、规则 |
 | Alertmanager | 9093 | http://127.0.0.1:9093 | 告警 |
 | Loki | 3100 | http://127.0.0.1:3100 | 日志 |
 | Tempo | 3200 | http://127.0.0.1:3200 | 查询链路。OTLP 4317/4318 不映射到宿主机 |
 | Pyroscope | 4040 | http://127.0.0.1:4040 | Profile，同时收 OTLP gRPC |
 | Alloy UI | 12345 | http://127.0.0.1:12345 | 节点代理 |
+| Collector 自身指标 | 8888 | http://127.0.0.1:8888/metrics | 管道健康 |
+| Collector 健康检查 | 13133 | http://127.0.0.1:13133 | 存活 |
+| Collector zpages | 55679 | http://127.0.0.1:55679/debug/tracez | 导出排障 |
+| node_exporter | 9100 | http://127.0.0.1:9100/metrics | 主机指标，job `node` |
+| Redis | 6379 | 127.0.0.1:6379 | 中间件目标 |
+| redis_exporter | 9121 | http://127.0.0.1:9121/metrics | Redis 指标 |
+| PostgreSQL | 5432 | 127.0.0.1:5432 | 中间件目标，本地 trust，无密码 |
+| postgres_exporter | 9187 | http://127.0.0.1:9187/metrics | PostgreSQL 指标 |
+| Nginx | 8080 | http://127.0.0.1:8088 | 反代 demo。stub_status 不对宿主机开放 |
+| nginx_exporter | 9113 | http://127.0.0.1:9113/metrics | Nginx 连接和请求速率 |
+| Kafka | 9092 | 127.0.0.1:9092 | 单节点 KRaft |
+| kafka_exporter | 9308 | http://127.0.0.1:9308/metrics | broker 数和消费延迟 |
 
 ### 版本
 
@@ -83,6 +105,16 @@ flowchart LR
 | Demo 基础镜像 | `python` | 3.12.12-slim |
 | Demo OTel SDK | `opentelemetry-sdk` 等 | 1.45.0（instrumentation `0.66b0`） |
 | Demo Pyroscope SDK | `pyroscope-io` / `pyroscope-otel` | 1.2.4 / 1.1.0 |
+| node_exporter | `prom/node-exporter` | v1.9.1 |
+| Redis | `redis` | 7.4.6 |
+| redis_exporter | `oliver006/redis_exporter` | v1.74.0 |
+| PostgreSQL | `postgres` | 17.6 |
+| postgres_exporter | `prometheuscommunity/postgres-exporter` | v0.17.1 |
+| Nginx | `nginx` | 1.28.0 |
+| nginx_exporter | `nginx/nginx-prometheus-exporter` | 1.4.2 |
+| Kafka | `apache/kafka` | 3.9.1 |
+| kafka_exporter | `danielqsj/kafka-exporter` | v1.9.0 |
+| kube-state-metrics | `registry.k8s.io/kube-state-metrics/kube-state-metrics` | v2.16.0（仅 Kubernetes） |
 
 ## 3. 目录结构
 
@@ -95,11 +127,13 @@ config/loki/               单二进制 Loki
 config/tempo/              单二进制 Tempo
 config/pyroscope/          单二进制 Pyroscope
 config/grafana/            数据源、仪表盘提供者、告警 provisioning、仪表盘 JSON
-examples/demo-app/         已接入 OTel 的示例服务
+config/nginx/              Nginx 反代与 stub_status，Compose 和 Kubernetes 共用
+config/redis/              Redis maxmemory，供内存饱和告警
+examples/demo-app/         已接入 OTel 的示例服务，含业务指标
 deploy/docker-compose/     本地全栈
 deploy/kubernetes/         Kustomize base 与 dev/prod overlay
 deploy/images.env          镜像钉扎清单
-docs/                      架构与 SLO
+docs/                      架构、五层指标目录、接入、处理、倾斜、排障、SLO
 scripts/config-check.sh    配置校验
 ```
 
@@ -167,7 +201,7 @@ curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/api/error
 
 预期能看到：
 
-- Grafana 文件夹 **Observability** 里有 Overview、Logs、Traces、Profiles、Host and containers、Demo app。
+- Grafana 文件夹 **Observability** 里有 Overview、Logs、Traces、Profiles、Host and containers、Demo app，以及五层仪表盘 Infrastructure、Middleware、Application RED、Business、Observability pipeline。
 - **Demo app** 仪表盘上 `service_name="demo-app"` 的 QPS、错误率和 p95。指标大约每 5 秒导出一次。
 - **Logs** 里 `{service_name="demo-app"}` 的 JSON 行。点开带 `trace_id` 的行可以跳到 Tempo。
 - **Traces** 里 TraceQL `{ resource.service.name = "demo-app" }`。`/api/error` 的 span 状态是 ERROR。
@@ -192,18 +226,22 @@ make down
 
 - `receivers.otlp`：gRPC `4317`、HTTP `4318`，这是应用唯一需要知道的入口。
 - `processors.memory_limiter`：按容器内存百分比限流，必须放在 pipeline 的第一个 processor。内存不够时会丢数据，并触发 `CollectorRefusedData`。
-- `processors.batch`：5 秒或 1024 条打包一次。
+- `processors.batch`：5 秒或 1024 条打包一次。profiles 管道不用 batch。
+- `processors.attributes/sanitize`：删除 `user.id`、`order.id`、原始 URL 一类键。
+- `processors.filter/query_in_route`：丢掉 `http.route` 里带查询串的数据。
+- `processors.transform/business_labels`：把业务标签收回到允许表。
+- `processors.tail_sampling`：错误和慢 trace 全留，其余目前 100% 采样，导出晚 5 秒。细节在 [docs/processing.md](docs/processing.md)。
 - `exporters.prometheusremotewrite`：写入 `http://prometheus:9090/api/v1/write`，并把资源属性转成标签。
 - `exporters.otlphttp/loki`：基址 `http://loki:3100/otlp`，Collector 会再拼上 `/v1/logs`。
 - `exporters.otlp/tempo`：`tempo:4317`。
 - `exporters.otlp/pyroscope`：`pyroscope:4040`。Pyroscope 只在这个端口上收 OTLP **gRPC**，不收 OTLP HTTP。
 - profiles 管道在 0.161 仍要 feature gate。Compose 和 Deployment 的参数里已经带了 `--feature-gates=service.profilesSupport`。去掉 profiles 管道才能去掉这个参数。
 
-自身指标在 `8888`，给 Prometheus job `otel-collector` 抓。健康检查在 `13133`。
+自身指标在 `8888`（本机 http://127.0.0.1:8888/metrics ），给 Prometheus job `otel-collector` 抓。健康检查在 `13133`，zpages 在 `55679`。`telemetry.metrics.level` 是 `detailed`，队列长度才有数。
 
 ### Alloy
 
-- 本地：`config/alloy/config.alloy`。`prometheus.exporter.unix` 读 `/host/proc`、`/host/sys`、`/host/root`，remote write 到 Prometheus。OTLP 接收器转发给 Collector，demo 默认不走这里。
+- 本地：`config/alloy/config.alloy`。`prometheus.exporter.unix` 读 `/host/proc`、`/host/sys`、`/host/root`，remote write 到 Prometheus，job 名是 `alloy-unix`。主机仪表盘读 node_exporter 的 job `node`。OTLP 接收器转发给 Collector，demo 默认不走这里。
 - Kubernetes：`config/alloy/config.k8s.alloy`。额外做两件事：只采集 `NODE_NAME` 上的 Pod 日志并推到 Loki；通过 API server 代理抓本节点 cAdvisor。证书用 ServiceAccount 的 CA，不跳过 TLS。
 
 两边的 Prometheus remote write URL 都是 `http://prometheus:9090/api/v1/write`。改地址时两处一起改，`config-check` 不替你做语义 diff，但架构文档把这个约定写死了。
@@ -288,6 +326,10 @@ Demo 对照（`examples/demo-app`）：
 | `GET /api/work?burn_ms=40` | 200，并烧一段 CPU |
 | `GET /api/slow?seconds=0.8` | 200，用来拉高延迟。`seconds` 最大 5 |
 | `GET /api/error` | 500 |
+| `GET /api/orders?channel=web` | 200，记 `business_orders_created_total`。channel 只允许 `web`、`api`，其他收成 `other` |
+| `GET /api/checkout?method=card&fail=0&segment=anonymous&delay_ms=0` | 200。记支付结果、结账延迟和活跃用户。`fail=1` 仍是 HTTP 200，失败写在业务指标的 `result="failure"` |
+
+业务标签允许表和 Collector 里的改写规则在 [docs/onboarding.md](docs/onboarding.md)。不要把用户 id 或订单 id 加进标签。
 
 实现分两处：`examples/demo-app/src/demo_app/telemetry.py` 负责 Resource、OTLP exporter、直方图 bucket（含 0.3 秒）和 Pyroscope；`server.py` 负责路由、span 状态和 JSON 日志。
 
@@ -361,9 +403,9 @@ kubectl -n observability port-forward svc/grafana 3000:3000
 
 规则：
 
-- `config/prometheus/rules/alerts.yml`：`TargetDown`、`CollectorExportFailures`、`CollectorRefusedData`、`DiskSpaceLow`、`HighErrorRate`、`HighLatency`，以及三条 SLO 烧录。
-- `config/prometheus/rules/recording.yml`：错误率和延迟达标率。
-- 定义和倍数说明：[docs/slo.md](docs/slo.md)。
+- `config/prometheus/rules/alerts.yml`：按 `layer` 分成 infrastructure、middleware、application、business、meta。包含 `NodeDown`、`DiskSpaceLow`、`RedisDown`、`PostgresDown`、`NginxDown`、`KafkaNoBrokers`、`HighErrorRate`、`HighLatency`、`BusinessPaymentFailureRatio`、`CollectorExportFailures`、`LokiSamplesDiscarded`、`GrafanaDown`，以及三条 HTTP SLO 烧录。
+- `config/prometheus/rules/recording.yml`：HTTP SLO、主机和中间件比率、业务成功/失败比、管道速率。
+- 指标和告警的对照表：[docs/metrics-catalog.md](docs/metrics-catalog.md)。HTTP SLO 的倍数说明：[docs/slo.md](docs/slo.md)。
 
 写新规则时：
 
@@ -394,8 +436,13 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 | `logs.json` | logs | Loki JSON 日志、错误行、日志量 |
 | `traces.json` | traces | TraceQL 表、span metrics、service graph |
 | `profiles.json` | profiles | CPU 与内存火焰图 |
-| `host.json` | host | 主机 CPU、负载、磁盘、网卡，以及 cAdvisor 容器 CPU/内存 |
+| `host.json` | host | 主机 CPU、负载、磁盘、网卡，以及 cAdvisor 容器 CPU/内存。主机查询限定 `job="node"` |
 | `demo-app.json` | demo-app | demo 的 RED、日志和 TraceQL |
+| `infrastructure.json` | infrastructure | 主机饱和、磁盘、node_exporter 存活、Kubernetes 对象、容器 |
+| `middleware.json` | middleware | Redis、PostgreSQL、Nginx、Kafka |
+| `application.json` | application | RED、在途请求、进程 CPU/内存、SLO 记录规则 |
+| `business.json` | business | 订单、支付成功率、结账延迟、活跃用户 |
+| `meta.json` | meta | Collector、Prometheus、Loki、Tempo、Pyroscope、Alloy 管道 |
 
 面板里的数据源 UID 必须是 provisioning 里的那几个。`schemaVersion` 为 39，Grafana 13 会在导入时升级。
 
@@ -424,16 +471,18 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 
 容量起点（单副本、低流量、含 demo）：Prometheus 10Gi / 2Gi 内存，Loki 与 Tempo 各 20Gi / 2Gi，Pyroscope 10Gi / 2Gi。先看 Overview 里的磁盘和 `otelcol_exporter_send_failed_*`。远程写入变慢或被拒绝时，先加 Collector 内存和 `memory_limiter`，再加后端磁盘。标签失控（尤其是把 URL、用户 id 放进 `http.route`）会比流量本身更早撑满 Prometheus。
 
-故障排查：
+故障排查的步骤、端口和指标名在 [docs/debugging.md](docs/debugging.md)。短表：
 
 | 现象 | 先看 |
 | --- | --- |
-| Grafana 没有点 | demo 是否在跑，`make load` 是否打过，Collector 日志里 remote write 是否 200 |
+| Grafana 没有点 | demo 是否在跑，`make load` 是否打过，Collector 日志里 remote write 是否成功 |
 | 有 trace 没有指标 | Prometheus 是否带 `--web.enable-remote-write-receiver`，指标名是否仍是 `http_server_request_duration_seconds` |
 | 有日志没有 trace 跳转 | 日志正文里是否有 `"trace_id":"..."`，数据源派生字段有没有被改掉 |
 | 火焰图为空 | `PYROSCOPE_SERVER_ADDRESS` 是否指向 `http://pyroscope:4040`，选择器是不是 `{service_name="demo-app"}` |
 | `TargetDown` | Prometheus 目标页。Compose DNS 和 Kubernetes Service 名必须一致 |
-| `DiskSpaceLow` 从不响 | Alloy 是否起来。没有 `node_filesystem_*` 时这条告警保持沉默 |
+| 主机面板是空的 | node-exporter 是否起来。告警和仪表盘读 `job="node"`，不是 Alloy 的 `job="alloy-unix"` |
+| `DiskSpaceLow` 从不响 | `node_filesystem_*{job="node"}` 是否存在 |
+| 业务仪表盘是空的 | 是否打过 `/api/orders` 和 `/api/checkout` |
 | Kubernetes Grafana 起不来 | 命名空间里有没有 `grafana-admin` Secret |
 | 改了 ConfigMap 容器没变 | `subPath` 挂载需要重启 Pod |
 
@@ -463,12 +512,21 @@ make test
 
 没有 Docker 守护进程时不要假定栈已经起来。`docker compose config` 只证明文件能被 Compose 解析。
 
-## 14. 后续演进
+## 14. 五层和后续演进
 
-1. 本机 Compose 把四类信号和一条告警走通。
-2. `kustomize build --load-restrictor LoadRestrictionsNone deploy/kubernetes/overlays/dev | kubectl apply -f -` 放到一个开发集群，仍然是单副本本地盘。
-3. 给 remote write、Loki、Tempo、Pyroscope 前面加鉴权网关，NetworkPolicy 收紧出站，Grafana 改到 Ingress 后面并打开 TLS。
-4. 指标从单机 Prometheus 迁到 Mimir（或 Thanos）。规则文件可以原样挂到 Mimir ruler。
-5. 日志改 Loki scalable 模式加对象存储；链路改 Tempo 分布式；Profile 改 Pyroscope v2 微服务。用对应 Helm chart，不要复制本仓库的 Deployment 去凑副本。
-6. 采集层保持现在的分工：Alloy 做节点，Collector 做网关。应用继续只认 OTLP。
-7. SLO 从 demo-app 抄到真实服务时，只改 `service_name` 选择器和预算数字，烧录结构留在 [docs/slo.md](docs/slo.md)。
+仓库里已经有五层可运行的定义，而不是只写在文档里：
+
+1. 基础：node_exporter（job `node`），Kubernetes 上还有 cAdvisor 和 kube-state-metrics。
+2. 中间件：Redis、PostgreSQL、Nginx、Kafka，以及各自的 exporter。
+3. 应用：demo 的 RED、显式直方图桶、在途请求、进程运行时、trace exemplar。
+4. 业务：订单、支付、结账延迟、活跃用户，标签允许表写在应用和 Collector 里。
+5. 自身：Collector、Prometheus、Loki、Tempo、Pyroscope、Grafana、Alertmanager、Alloy 的管道指标和告警。
+
+后面的演进仍然是单机拓扑向外长，而不是在这个仓库里拆成多集群：
+
+1. `kustomize build --load-restrictor LoadRestrictionsNone deploy/kubernetes/overlays/dev | kubectl apply -f -` 放到一个开发集群，仍然是单副本本地盘。node-exporter 的静态 Service 只适合单节点；多节点改成服务发现，并继续用 job `node`，不要和 `alloy-unix` 混加。
+2. 给 remote write、Loki、Tempo、Pyroscope 前面加鉴权网关，NetworkPolicy 收紧出站，Grafana 改到 Ingress 后面并打开 TLS。
+3. 指标从单机 Prometheus 迁到 Mimir（或 Thanos）。规则文件可以原样挂到 Mimir ruler。
+4. 日志改 Loki scalable 模式加对象存储；链路改 Tempo 分布式；Profile 改 Pyroscope 微服务。用对应 Helm chart，不要复制本仓库的 Deployment 去凑副本。
+5. 采集层保持现在的分工：Alloy 做节点，Collector 做网关。应用继续只认 OTLP。
+6. SLO 从 demo-app 抄到真实服务时，只改 `service_name` 选择器和预算数字，烧录结构留在 [docs/slo.md](docs/slo.md)。业务失败比抄 `business:payments:failure_ratio5m`，不要新开一组高基数标签。

@@ -14,6 +14,9 @@ resources:
   - grafana.yaml
   - alloy.yaml
   - demo-app.yaml
+  - node-exporter.yaml
+  - kube-state-metrics.yaml
+  - middleware.yaml
   - networkpolicy.yaml
 labels:
   - pairs:
@@ -45,6 +48,12 @@ configMapGenerator:
   - name: alloy-config
     files:
       - config.k8s.alloy=../../../config/alloy/config.k8s.alloy
+  - name: nginx-config
+    files:
+      - nginx.conf=../../../config/nginx/nginx.conf
+  - name: redis-config
+    files:
+      - redis.conf=../../../config/redis/redis.conf
   - name: grafana-datasources
     files:
       - datasources.yaml=../../../config/grafana/provisioning/datasources/datasources.yaml
@@ -64,6 +73,11 @@ configMapGenerator:
       - profiles.json=../../../config/grafana/dashboards/profiles.json
       - host.json=../../../config/grafana/dashboards/host.json
       - demo-app.json=../../../config/grafana/dashboards/demo-app.json
+      - infrastructure.json=../../../config/grafana/dashboards/infrastructure.json
+      - middleware.json=../../../config/grafana/dashboards/middleware.json
+      - application.json=../../../config/grafana/dashboards/application.json
+      - business.json=../../../config/grafana/dashboards/business.json
+      - meta.json=../../../config/grafana/dashboards/meta.json
 generatorOptions:
   annotations:
     app.kubernetes.io/part-of: observability-platform

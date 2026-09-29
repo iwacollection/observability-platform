@@ -106,7 +106,8 @@ note "prometheus"
 if command -v promtool >/dev/null 2>&1; then
   # prometheus.yml points rule_files at /etc/prometheus/rules, which exists in
   # the container, not on the host. check rules reads the files directly.
-  promtool check rules "$root/config/prometheus/rules/alerts.yml" "$root/config/prometheus/rules/recording.yml" || die "promtool check rules"
+  mapfile -t rule_files < <(find "$root/config/prometheus/rules" -maxdepth 1 -type f -name '*.yml' | sort)
+  promtool check rules "${rule_files[@]}" || die "promtool check rules"
   promtool test rules "$root/config/prometheus/tests/alerts_test.yml" || die "promtool test rules"
 else
   die "promtool not found"
@@ -144,6 +145,17 @@ needles = [
     "config.k8s.alloy",
     "datasources.yaml",
     "overview.json",
+    "infrastructure.json",
+    "middleware.json",
+    "application.json",
+    "business.json",
+    "meta.json",
+    "node-exporter",
+    "redis-exporter",
+    "postgres-exporter",
+    "nginx-exporter",
+    "kafka-exporter",
+    "kube-state-metrics",
     "kind: Deployment",
     "kind: DaemonSet",
 ]
@@ -151,6 +163,27 @@ missing = [n for n in needles if n not in text]
 if missing:
     raise SystemExit("kustomize output missing: " + ", ".join(missing))
 print("kustomize overlays rendered")
+PY
+  python3 - <<'PY'
+import pathlib, sys
+root = pathlib.Path(".")
+kust = (root / "deploy/kubernetes/base/kustomization.yaml").read_text()
+missing = []
+for path in (root / "config/grafana/dashboards").glob("*.json"):
+    if path.name not in kust:
+        missing.append(path.name)
+if missing:
+    print("dashboards missing from kustomization: " + ", ".join(missing))
+    sys.exit(1)
+business = (root / "examples/demo-app/src/demo_app/business.py").read_text()
+collector = (root / "config/otel-collector/config.yaml").read_text()
+for token in ("web", "api", "card", "wallet", "anonymous", "authenticated"):
+    if f'"{token}"' not in business or f'"{token}"' not in collector:
+        missing.append(token)
+if missing:
+    print("business allow-list missing from app or collector: " + ", ".join(missing))
+    sys.exit(1)
+print("dashboards mounted and business allow-list matches")
 PY
 else
   die "kustomize not found"

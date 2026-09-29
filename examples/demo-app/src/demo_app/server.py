@@ -14,7 +14,19 @@ from opentelemetry.trace import Status, StatusCode
 from demo_app.telemetry import setup_logging, setup_telemetry
 
 LOGGER = setup_logging()
-TRACER, HISTOGRAM = setup_telemetry(LOGGER)
+TELEMETRY = setup_telemetry(LOGGER)
+
+# Paths that may appear as the http.route label. Anything else is "other"
+# so a scan of random URLs cannot create a series per path.
+KNOWN_ROUTES = {
+    "/",
+    "/healthz",
+    "/api/work",
+    "/api/slow",
+    "/api/error",
+    "/api/orders",
+    "/api/checkout",
+}
 
 
 def burn_cpu(milliseconds: int) -> int:
@@ -24,6 +36,17 @@ def burn_cpu(milliseconds: int) -> int:
     while time.perf_counter() < deadline:
         value = (value * 33 + 1) % 1_000_003
     return value
+
+
+def route_label(path: str) -> str:
+    return path if path in KNOWN_ROUTES else "other"
+
+
+def _first(query: dict[str, list[str]], key: str, default: str = "") -> str:
+    values = query.get(key)
+    if not values:
+        return default
+    return values[0]
 
 
 def handle_request(method: str, path: str, query: dict[str, list[str]]) -> tuple[int, dict]:
@@ -44,6 +67,31 @@ def handle_request(method: str, path: str, query: dict[str, list[str]]) -> tuple
 
     if path == "/api/error":
         return 500, {"status": "error", "route": path, "error": "forced failure"}
+
+    if path == "/api/orders":
+        if method != "GET":
+            return 405, {"error": "method not allowed", "method": method}
+        attributes = TELEMETRY.business.order_created(_first(query, "channel", "web"))
+        return 200, {"status": "ok", "route": path, "channel": attributes["channel"]}
+
+    if path == "/api/checkout":
+        if method != "GET":
+            return 405, {"error": "method not allowed", "method": method}
+        failed = _first(query, "fail", "0") in {"1", "true", "yes"}
+        delay = _bounded_float(query, "delay_ms", default=10, upper=2000) / 1000
+        time.sleep(delay)
+        segment = TELEMETRY.business.note_active(_first(query, "segment", "anonymous"))
+        attributes = TELEMETRY.business.payment(_first(query, "method", "card"), failed, delay)
+        # Payment failure stays HTTP 200. The business counter records result.
+        # HTTP 5xx remains /api/error so RED and business ratios are separate.
+        return 200, {
+            "status": "error" if failed else "ok",
+            "route": path,
+            "result": attributes["result"],
+            "method": attributes["method"],
+            "segment": segment["segment"],
+            "slept": delay,
+        }
 
     return 404, {"error": "not found", "route": path}
 
@@ -83,30 +131,40 @@ class Handler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         route = parsed.path or "/"
         query = parse_qs(parsed.query)
+        metric_route = route_label(route)
         start = time.perf_counter()
         status = 500
-        with TRACER.start_as_current_span(route) as span:
-            span.set_attribute("http.request.method", self.command)
-            span.set_attribute("http.route", route)
-            try:
-                status, body = handle_request(self.command, route, query)
-            except Exception:
-                LOGGER.exception("request failed", extra={})
-                status = 500
-                body = {"status": "error", "route": route, "error": "internal error"}
-                span.set_status(Status(StatusCode.ERROR))
-            span.set_attribute("http.response.status_code", status)
-            if status >= 500:
-                span.set_status(Status(StatusCode.ERROR, "server error"))
-            duration = time.perf_counter() - start
-            HISTOGRAM.record(
-                duration,
-                attributes={
-                    "http.request.method": self.command,
-                    "http.response.status_code": status,
-                    "http.route": route,
-                },
-            )
+        body: dict = {"status": "error", "route": route, "error": "internal error"}
+        duration = 0.0
+        attributes = {
+            "http.request.method": self.command,
+            "http.route": metric_route,
+        }
+        TELEMETRY.active.add(1, attributes)
+        try:
+            with TELEMETRY.tracer.start_as_current_span(metric_route) as span:
+                span.set_attribute("http.request.method", self.command)
+                span.set_attribute("http.route", metric_route)
+                try:
+                    status, body = handle_request(self.command, route, query)
+                except Exception:
+                    LOGGER.exception("request failed", extra={})
+                    status = 500
+                    body = {"status": "error", "route": route, "error": "internal error"}
+                    span.set_status(Status(StatusCode.ERROR))
+                span.set_attribute("http.response.status_code", status)
+                if status >= 500:
+                    span.set_status(Status(StatusCode.ERROR, "server error"))
+                duration = time.perf_counter() - start
+                # record() runs inside the span so the SDK can attach a trace exemplar.
+                TELEMETRY.histogram.record(
+                    duration,
+                    attributes={
+                        "http.request.method": self.command,
+                        "http.response.status_code": status,
+                        "http.route": metric_route,
+                    },
+                )
             if route != "/healthz":
                 LOGGER.log(
                     logging.ERROR if status >= 500 else logging.INFO,
@@ -122,6 +180,8 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(payload)))
             self.end_headers()
             self.wfile.write(payload)
+        finally:
+            TELEMETRY.active.add(-1, attributes)
 
 
 def make_server(host: str, port: int) -> ThreadingHTTPServer:

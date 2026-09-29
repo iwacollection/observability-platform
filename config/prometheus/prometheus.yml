@@ -1,6 +1,8 @@
-# Scrapes platform self-metrics. Application RED metrics arrive via remote write
-# from the OpenTelemetry Collector, not from a direct demo-app scrape.
-# Host/container metrics arrive via remote write from Grafana Alloy.
+# Scrapes platform self-metrics, node_exporter, and middleware exporters.
+# Application RED and business metrics arrive via remote write from the
+# OpenTelemetry Collector, not from a direct demo-app scrape.
+# Alloy remote-writes a second host copy as job=alloy-unix, cAdvisor, and
+# (on Kubernetes) kube-state-metrics. Dashboards use job="node".
 # Service DNS names match both Compose service names and Kubernetes Services.
 
 global:
@@ -58,3 +60,38 @@ scrape_configs:
   - job_name: alloy
     static_configs:
       - targets: ["alloy:12345"]
+
+  # Host metrics. job=node is the node_exporter Service in both Compose and
+  # Kubernetes. Alloy's unix exporter uses job=alloy-unix so the two copies
+  # do not double CPU, disk, and network series on dashboards.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    metric_relabel_configs:
+      # redis_exporter key collectors attach the key name as a label.
+      # This stack does not enable them. Drop the series if they appear
+      # so one Redis key cannot become one Prometheus series.
+      - source_labels: [__name__]
+        regex: redis_key_.*
+        action: drop
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+
+  - job_name: nginx
+    static_configs:
+      - targets: ["nginx-exporter:9113"]
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+
+  # kube-state-metrics is scraped by Alloy on Kubernetes only
+  # (config/alloy/config.k8s.alloy, job kube-state-metrics). It is not
+  # listed here: Compose has no API server, and a static target would
+  # keep TargetDown firing.

@@ -35,6 +35,7 @@ tests:
           - exp_labels:
               alertname: TargetDown
               severity: critical
+              layer: meta
               job: prometheus
               instance: prometheus:9090
             exp_annotations:
@@ -46,6 +47,7 @@ tests:
           - exp_labels:
               alertname: HighErrorRate
               severity: warning
+              layer: application
               service_name: demo-app
             exp_annotations:
               summary: "HTTP 5xx error ratio is above 5%"
@@ -56,3 +58,90 @@ tests:
         exp_samples:
           - labels: 'slo:http_errors:ratio_rate5m{service_name="demo-app"}'
             value: 0.5
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node",instance="node-exporter:9100"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: NodeDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NodeDown
+        exp_alerts:
+          - exp_labels:
+              alertname: NodeDown
+              severity: critical
+              layer: infrastructure
+              job: node
+              instance: node-exporter:9100
+            exp_annotations:
+              summary: "Node exporter target is down"
+              description: "node-exporter:9100 has not been scraped for more than 2 minutes."
+
+  - interval: 1m
+    input_series:
+      - series: 'redis_up{job="redis",instance="redis-exporter:9121"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RedisDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: RedisDown
+        exp_alerts:
+          - exp_labels:
+              alertname: RedisDown
+              severity: critical
+              layer: middleware
+              job: redis
+              instance: redis-exporter:9121
+            exp_annotations:
+              summary: "Redis exporter cannot reach Redis"
+              description: "redis-exporter:9121 reports redis_up 0."
+
+  - interval: 1m
+    input_series:
+      - series: 'business_payments_total{service_name="demo-app",result="failure",method="card"}'
+        values: "0+12x20"
+      - series: 'business_payments_total{service_name="demo-app",result="success",method="card"}'
+        values: "0+6x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BusinessPaymentFailureRatio
+        exp_alerts:
+          - exp_labels:
+              alertname: BusinessPaymentFailureRatio
+              severity: warning
+              layer: business
+              service_name: demo-app
+            exp_annotations:
+              summary: "Payment failure ratio is above 10%"
+              description: "demo-app payment failures are above 10% of payments over 5 minutes."
+    promql_expr_test:
+      - expr: business:payments:failure_ratio5m{service_name="demo-app"}
+        eval_time: 10m
+        exp_samples:
+          - labels: 'business:payments:failure_ratio5m{service_name="demo-app"}'
+            value: 0.6666666666666666
+
+  - interval: 1m
+    input_series:
+      - series: 'loki_discarded_samples_total{reason="stream_limit",job="loki",tenant="fake"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: LokiSamplesDiscarded
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: LokiSamplesDiscarded
+        exp_alerts:
+          - exp_labels:
+              alertname: LokiSamplesDiscarded
+              severity: warning
+              layer: meta
+              reason: stream_limit
+            exp_annotations:
+              summary: "Loki is discarding log samples"
+              description: "Loki discard reason stream_limit is non-zero."

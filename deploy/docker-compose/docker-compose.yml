@@ -16,6 +16,9 @@ services:
     ports:
       - "127.0.0.1:4317:4317"
       - "127.0.0.1:4318:4318"
+      - "127.0.0.1:8888:8888"
+      - "127.0.0.1:13133:13133"
+      - "127.0.0.1:55679:55679"
     mem_limit: 512m
     restart: unless-stopped
 
@@ -155,6 +158,7 @@ services:
       DEPLOYMENT_ENVIRONMENT: local
       DEMO_LISTEN_ADDR: 0.0.0.0:8080
       OTEL_METRIC_EXPORT_INTERVAL: "5000"
+      OTEL_METRICS_EXEMPLAR_FILTER: trace_based
     ports:
       - "127.0.0.1:8080:8080"
     depends_on:
@@ -177,6 +181,126 @@ services:
     mem_limit: 256m
     restart: unless-stopped
 
+  # Kubernetes-only image pin (needs an API server; no Compose service):
+  # registry.k8s.io/kube-state-metrics/kube-state-metrics:v2.16.0
+
+  node-exporter:
+    image: prom/node-exporter:v1.9.1
+    user: root
+    command:
+      - --path.procfs=/host/proc
+      - --path.sysfs=/host/sys
+      - --path.rootfs=/host/root
+      - --collector.filesystem.mount-points-exclude=^/(sys|proc|dev|host|etc)($$|/)
+      - --web.listen-address=0.0.0.0:9100
+    volumes:
+      - /proc:/host/proc:ro
+      - /sys:/host/sys:ro
+      - /:/host/root:ro
+    ports:
+      - "127.0.0.1:9100:9100"
+    mem_limit: 128m
+    restart: unless-stopped
+
+  redis:
+    image: redis:7.4.6
+    command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+    volumes:
+      - ../../config/redis/redis.conf:/usr/local/etc/redis/redis.conf:ro
+    ports:
+      - "127.0.0.1:6379:6379"
+    mem_limit: 128m
+    restart: unless-stopped
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.74.0
+    environment:
+      REDIS_ADDR: redis://redis:6379
+    ports:
+      - "127.0.0.1:9121:9121"
+    depends_on:
+      - redis
+    mem_limit: 64m
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:17.6
+    environment:
+      POSTGRES_HOST_AUTH_METHOD: trust
+      POSTGRES_USER: postgres
+      POSTGRES_DB: postgres
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    ports:
+      - "127.0.0.1:5432:5432"
+    mem_limit: 256m
+    restart: unless-stopped
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.17.1
+    environment:
+      DATA_SOURCE_NAME: postgresql://postgres@postgres:5432/postgres?sslmode=disable
+    ports:
+      - "127.0.0.1:9187:9187"
+    depends_on:
+      - postgres
+    mem_limit: 64m
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.28.0
+    volumes:
+      - ../../config/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "127.0.0.1:8088:8080"
+    depends_on:
+      - demo-app
+    mem_limit: 64m
+    restart: unless-stopped
+
+  nginx-exporter:
+    image: nginx/nginx-prometheus-exporter:1.4.2
+    command:
+      - --nginx.scrape-uri=http://nginx:8080/stub_status
+    ports:
+      - "127.0.0.1:9113:9113"
+    depends_on:
+      - nginx
+    mem_limit: 64m
+    restart: unless-stopped
+
+  kafka:
+    image: apache/kafka:3.9.1
+    environment:
+      KAFKA_NODE_ID: "1"
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: "1"
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: "0"
+      KAFKA_NUM_PARTITIONS: "3"
+      CLUSTER_ID: MkU3OEVBNTcwNTJENDM2Qk
+    ports:
+      - "127.0.0.1:9092:9092"
+    mem_limit: 768m
+    restart: unless-stopped
+
+  kafka-exporter:
+    image: danielqsj/kafka-exporter:v1.9.0
+    command:
+      - --kafka.server=kafka:9092
+    ports:
+      - "127.0.0.1:9308:9308"
+    depends_on:
+      - kafka
+    mem_limit: 128m
+    restart: unless-stopped
+
 volumes:
   alloy-data:
   prometheus-data:
@@ -185,3 +309,4 @@ volumes:
   tempo-data:
   pyroscope-data:
   grafana-data:
+  postgres-data:

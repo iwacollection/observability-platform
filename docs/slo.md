@@ -33,6 +33,8 @@
 
 除此之外还有不挂 SLO 名字的症状告警：`HighErrorRate`（5 分钟 5xx 超过 5%，且 QPS > 0.1）和 `HighLatency`（p95 > 500ms）。它们比烧录更早、更吵，用来在预算计算还没积累够窗口时看见问题。
 
+业务支付失败不是这组 HTTP SLO。`/api/checkout?fail=1` 返回 HTTP 200，失败记在 `business_payments_total{result="failure"}`。双窗口告警是 `BusinessPaymentFailureBurn`，短窗口 5 分钟失败比超过 20%，长窗口 1 小时超过 10%。记录规则是 `business:payments:failure_ratio5m` 和 `business:payments:failure_ratio1h`。
+
 ## 和 Alertmanager 的关系
 
 `severity=critical` 进 `critical` 接收器，`warning` 进 `warning` 接收器。这两个接收器默认是空的，Alertmanager 会留下告警但不外发。要接到真实系统，把路由改到 `webhook-example`，或给带 `notify=webhook` 标签的告警走示例 webhook，再把 URL 换成你自己的地址。不要把 token 写进 git。

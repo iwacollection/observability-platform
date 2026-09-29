@@ -1,6 +1,6 @@
 {
-  "uid": "overview",
-  "title": "Overview RED/USE",
+  "uid": "infrastructure",
+  "title": "Infrastructure",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",
@@ -10,8 +10,7 @@
   "graphTooltip": 1,
   "tags": [
     "observability",
-    "red",
-    "use"
+    "infrastructure"
   ],
   "time": {
     "from": "now-1h",
@@ -20,53 +19,12 @@
   "panels": [
     {
       "id": 1,
-      "type": "stat",
-      "title": "Request rate",
+      "type": "timeseries",
+      "title": "Node CPU utilization",
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 8,
+        "w": 12,
         "x": 0,
-        "y": 0
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "reqps"
-        },
-        "overrides": []
-      },
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=~\"$service_name\",http_route!=\"/healthz\"}[5m]))",
-          "legendFormat": "{{service_name}}"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "type": "stat",
-      "title": "Error ratio",
-      "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 6,
         "y": 0
       },
       "datasource": {
@@ -80,12 +38,13 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
       "targets": [
@@ -95,18 +54,18 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=~\"$service_name\",http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=~\"$service_name\",http_route!=\"/healthz\"}[5m]))",
-          "legendFormat": "{{service_name}}"
+          "expr": "instance:node_cpu_utilization:ratio",
+          "legendFormat": "{{instance}}"
         }
       ]
     },
     {
-      "id": 3,
-      "type": "stat",
-      "title": "p95 latency",
+      "id": 2,
+      "type": "timeseries",
+      "title": "Node memory utilization",
       "gridPos": {
-        "h": 4,
-        "w": 6,
+        "h": 8,
+        "w": 12,
         "x": 12,
         "y": 0
       },
@@ -116,17 +75,18 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "percentunit"
         },
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
       "targets": [
@@ -136,20 +96,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=~\"$service_name\",http_route!=\"/healthz\"}[5m])))",
-          "legendFormat": "{{service_name}}"
+          "expr": "instance:node_memory_utilization:ratio",
+          "legendFormat": "{{instance}}"
         }
       ]
     },
     {
-      "id": 4,
-      "type": "stat",
-      "title": "Targets up",
+      "id": 3,
+      "type": "timeseries",
+      "title": "Load average",
       "gridPos": {
-        "h": 4,
-        "w": 6,
-        "x": 18,
-        "y": 0
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
       },
       "datasource": {
         "type": "prometheus",
@@ -162,12 +122,13 @@
         "overrides": []
       },
       "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ]
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
         }
       },
       "targets": [
@@ -177,20 +138,62 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(up)",
-          "legendFormat": "{{service_name}}"
+          "expr": "node_load1{job=\"node\"}",
+          "legendFormat": "{{instance}} load1"
+        }
+      ]
+    },
+    {
+      "id": 4,
+      "type": "timeseries",
+      "title": "Filesystem free ratio",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "instance:node_filesystem_free:ratio",
+          "legendFormat": "{{instance}} {{mountpoint}}"
         }
       ]
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Request rate by service",
+      "title": "Disk IO time",
       "gridPos": {
         "h": 8,
-        "w": 8,
+        "w": 12,
         "x": 0,
-        "y": 4
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -198,7 +201,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "reqps"
+          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -219,20 +222,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{service_name=~\"$service_name\",http_route!=\"/healthz\"}[5m]))",
-          "legendFormat": "{{service_name}}"
+          "expr": "sum by (instance, device) (rate(node_disk_io_time_seconds_total{job=\"node\",device!~\"loop.*\"}[5m]))",
+          "legendFormat": "{{instance}} {{device}}"
         }
       ]
     },
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Error ratio by service",
+      "title": "Network receive",
       "gridPos": {
         "h": 8,
-        "w": 8,
-        "x": 8,
-        "y": 4
+        "w": 12,
+        "x": 12,
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -240,7 +243,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "Bps"
         },
         "overrides": []
       },
@@ -261,20 +264,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{service_name=~\"$service_name\",http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(http_server_request_duration_seconds_count{service_name=~\"$service_name\",http_route!=\"/healthz\"}[5m]))",
-          "legendFormat": "{{service_name}}"
+          "expr": "sum by (instance, device) (rate(node_network_receive_bytes_total{job=\"node\",device!~\"lo\"}[5m]))",
+          "legendFormat": "{{instance}} {{device}}"
         }
       ]
     },
     {
       "id": 7,
-      "type": "timeseries",
-      "title": "Latency p95",
+      "type": "stat",
+      "title": "Node exporter up",
       "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 8,
-        "x": 16,
-        "y": 4
+        "x": 0,
+        "y": 24
       },
       "datasource": {
         "type": "prometheus",
@@ -282,18 +285,17 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "s"
+          "unit": "short"
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
         }
       },
       "targets": [
@@ -303,20 +305,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket{service_name=~\"$service_name\",http_route!=\"/healthz\"}[5m])))",
-          "legendFormat": "{{service_name}}"
+          "expr": "up{job=\"node\"}",
+          "legendFormat": "{{instance}}"
         }
       ]
     },
     {
       "id": 8,
-      "type": "timeseries",
-      "title": "CPU busy",
+      "type": "stat",
+      "title": "Pods not ready",
       "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 8,
-        "x": 0,
-        "y": 12
+        "x": 8,
+        "y": 24
       },
       "datasource": {
         "type": "prometheus",
@@ -324,18 +326,17 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percent"
+          "unit": "short"
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
         }
       },
       "targets": [
@@ -345,20 +346,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "100 - (avg by (instance) (rate(node_cpu_seconds_total{job=\"node\",mode=\"idle\"}[5m])) * 100)",
-          "legendFormat": "{{instance}}"
+          "expr": "sum(kube_pod_status_ready{job=\"kube-state-metrics\",condition=\"false\"})",
+          "legendFormat": "not ready"
         }
       ]
     },
     {
       "id": 9,
-      "type": "timeseries",
-      "title": "Memory used",
+      "type": "stat",
+      "title": "Unavailable deployments",
       "gridPos": {
-        "h": 8,
+        "h": 4,
         "w": 8,
-        "x": 8,
-        "y": 12
+        "x": 16,
+        "y": 24
       },
       "datasource": {
         "type": "prometheus",
@@ -366,18 +367,17 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "percentunit"
+          "unit": "short"
         },
         "overrides": []
       },
       "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
+        "colorMode": "value",
+        "graphMode": "area",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ]
         }
       },
       "targets": [
@@ -387,62 +387,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "1 - (node_memory_MemAvailable_bytes{job=\"node\"} / node_memory_MemTotal_bytes{job=\"node\"})",
-          "legendFormat": "{{instance}}"
+          "expr": "sum(kube_deployment_status_replicas_unavailable{job=\"kube-state-metrics\"})",
+          "legendFormat": "unavailable"
         }
       ]
     },
     {
       "id": 10,
       "type": "timeseries",
-      "title": "Disk used",
-      "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 12
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "percentunit"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "1 - (node_filesystem_avail_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|aufs\"} / node_filesystem_size_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|aufs\"})",
-          "legendFormat": "{{instance}} {{mountpoint}}"
-        }
-      ]
-    },
-    {
-      "id": 11,
-      "type": "timeseries",
-      "title": "Scrape targets",
+      "title": "Container CPU",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
-        "y": 20
+        "y": 28
       },
       "datasource": {
         "type": "prometheus",
@@ -471,20 +429,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "up",
-          "legendFormat": "{{job}} {{instance}}"
+          "expr": "sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]))",
+          "legendFormat": "{{namespace}}/{{pod}}"
         }
       ]
     },
     {
-      "id": 12,
+      "id": 11,
       "type": "timeseries",
-      "title": "Collector export failures",
+      "title": "Container memory",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 20
+        "y": 28
       },
       "datasource": {
         "type": "prometheus",
@@ -492,7 +450,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "cps"
+          "unit": "bytes"
         },
         "overrides": []
       },
@@ -513,63 +471,47 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (exporter) (rate(otelcol_exporter_send_failed_spans_total[5m])) or sum by (exporter) (rate(otelcol_exporter_send_failed_metric_points_total[5m])) or sum by (exporter) (rate(otelcol_exporter_send_failed_log_records_total[5m]))",
-          "legendFormat": "{{exporter}}"
+          "expr": "sum by (namespace, pod, container) (container_memory_working_set_bytes{container!=\"\"})",
+          "legendFormat": "{{namespace}}/{{pod}}"
         }
       ]
     }
   ],
   "templating": {
-    "list": [
-      {
-        "name": "service_name",
-        "label": "service",
-        "type": "query",
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "query": "label_values(http_server_request_duration_seconds_count, service_name)",
-        "definition": "label_values(http_server_request_duration_seconds_count, service_name)",
-        "refresh": 2,
-        "includeAll": true,
-        "allValue": ".*",
-        "multi": true,
-        "current": {
-          "text": "All",
-          "value": "$__all"
-        },
-        "options": [],
-        "sort": 1
-      }
-    ]
+    "list": []
   },
   "annotations": {
     "list": []
   },
   "links": [
     {
-      "title": "Overview",
+      "title": "Infrastructure",
       "type": "link",
-      "url": "/d/overview",
+      "url": "/d/infrastructure",
       "keepTime": true
     },
     {
-      "title": "Logs",
+      "title": "Middleware",
       "type": "link",
-      "url": "/d/logs",
+      "url": "/d/middleware",
       "keepTime": true
     },
     {
-      "title": "Traces",
+      "title": "Application",
       "type": "link",
-      "url": "/d/traces",
+      "url": "/d/application",
       "keepTime": true
     },
     {
-      "title": "Profiles",
+      "title": "Business",
       "type": "link",
-      "url": "/d/profiles",
+      "url": "/d/business",
+      "keepTime": true
+    },
+    {
+      "title": "Meta",
+      "type": "link",
+      "url": "/d/meta",
       "keepTime": true
     },
     {

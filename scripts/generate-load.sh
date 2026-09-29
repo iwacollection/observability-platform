@@ -8,5 +8,9 @@ for _ in $(seq 1 "$count"); do
   curl -fsS "$base/healthz" >/dev/null || true
   curl -sS -o /dev/null "$base/api/error" || true
   curl -fsS "$base/api/slow?seconds=0.05" >/dev/null || true
+  curl -fsS "$base/api/orders?channel=web" >/dev/null || true
+  curl -fsS "$base/api/orders?channel=api" >/dev/null || true
+  curl -fsS "$base/api/checkout?method=card&fail=0&segment=anonymous&delay_ms=0" >/dev/null || true
+  curl -fsS "$base/api/checkout?method=wallet&fail=1&segment=authenticated&delay_ms=0" >/dev/null || true
 done
 echo "sent $count rounds to $base"

@@ -13,11 +13,13 @@ prometheus.exporter.unix "node" {
 	rootfs_path = "/host/root"
 }
 
+// job alloy-unix is the agent copy. The node_exporter DaemonSet is scraped
+// by Prometheus as job="node". Do not set this job_name back to "node".
 prometheus.scrape "node" {
 	targets         = prometheus.exporter.unix.node.targets
 	forward_to      = [prometheus.remote_write.prometheus.receiver]
 	scrape_interval = "15s"
-	job_name        = "node"
+	job_name        = "alloy-unix"
 }
 
 discovery.kubernetes "nodes" {
@@ -51,9 +53,21 @@ discovery.relabel "cadvisor" {
 	}
 }
 
+// Before: forward_to = [prometheus.remote_write.prometheus.receiver]
+// That kept cAdvisor's id / container_id / image_id labels, one series per
+// container runtime id. After: drop those label names before remote write.
+prometheus.relabel "cadvisor_labels" {
+	forward_to = [prometheus.remote_write.prometheus.receiver]
+
+	rule {
+		regex  = "id|container_id|image_id"
+		action = "labeldrop"
+	}
+}
+
 prometheus.scrape "cadvisor" {
 	targets         = discovery.relabel.cadvisor.output
-	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	forward_to      = [prometheus.relabel.cadvisor_labels.receiver]
 	scrape_interval = "30s"
 	scheme          = "https"
 	job_name        = "cadvisor"
@@ -66,6 +80,16 @@ prometheus.scrape "cadvisor" {
 	tls_config {
 		ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
 	}
+}
+
+// Kubernetes-only. Compose does not run kube-state-metrics.
+prometheus.scrape "kube_state" {
+	targets = [{
+		__address__ = "kube-state-metrics:8080",
+	}]
+	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	scrape_interval = "30s"
+	job_name        = "kube-state-metrics"
 }
 
 prometheus.remote_write "prometheus" {

@@ -38,6 +38,8 @@ spec:
               containerPort: 8888
             - name: health
               containerPort: 13133
+            - name: zpages
+              containerPort: 55679
           readinessProbe:
             httpGet:
               path: /
@@ -91,3 +93,9 @@ spec:
     - name: metrics
       port: 8888
       targetPort: metrics
+    - name: health
+      port: 13133
+      targetPort: health
+    - name: zpages
+      port: 55679
+      targetPort: zpages

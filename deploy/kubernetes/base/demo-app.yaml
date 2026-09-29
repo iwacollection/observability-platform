@@ -39,6 +39,8 @@ spec:
               value: 0.0.0.0:8080
             - name: OTEL_METRIC_EXPORT_INTERVAL
               value: "5000"
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: trace_based
           ports:
             - name: http
               containerPort: 8080

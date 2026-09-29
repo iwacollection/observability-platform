@@ -1,6 +1,6 @@
 {
-  "uid": "host",
-  "title": "Host and containers",
+  "uid": "business",
+  "title": "Business",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",
@@ -10,8 +10,7 @@
   "graphTooltip": 1,
   "tags": [
     "observability",
-    "host",
-    "container"
+    "business"
   ],
   "time": {
     "from": "now-1h",
@@ -21,11 +20,53 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "CPU by mode",
+      "title": "Orders created",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "ops"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (service_name, channel) (business:orders:created:rate5m)",
+          "legendFormat": "{{service_name}} {{channel}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Payment success ratio",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
         "y": 0
       },
       "datasource": {
@@ -55,57 +96,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, mode) (rate(node_cpu_seconds_total{job=\"node\"}[5m]))",
-          "legendFormat": "{{instance}} {{mode}}"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Load average",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_load1{job=\"node\"}",
-          "legendFormat": "{{instance}}"
+          "expr": "business:payments:success_ratio5m",
+          "legendFormat": "{{service_name}}"
         }
       ]
     },
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Memory",
+      "title": "Payment failure ratio",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -118,7 +117,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes"
+          "unit": "percentunit"
         },
         "overrides": []
       },
@@ -139,15 +138,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_memory_MemAvailable_bytes{job=\"node\"}",
-          "legendFormat": "available {{instance}}"
+          "expr": "business:payments:failure_ratio5m",
+          "legendFormat": "{{service_name}}"
         }
       ]
     },
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Filesystem available",
+      "title": "Checkout p95",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -160,7 +159,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -181,15 +180,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_filesystem_avail_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|aufs\"}",
-          "legendFormat": "{{instance}} {{mountpoint}}"
+          "expr": "business:checkout_duration:p95_5m",
+          "legendFormat": "{{service_name}}"
         }
       ]
     },
     {
       "id": 5,
       "type": "timeseries",
-      "title": "Network receive",
+      "title": "Payments by result",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -202,7 +201,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "Bps"
+          "unit": "ops"
         },
         "overrides": []
       },
@@ -223,62 +222,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, device) (rate(node_network_receive_bytes_total{job=\"node\",device!~\"lo\"}[5m]))",
-          "legendFormat": "{{instance}} {{device}}"
+          "expr": "sum by (service_name, result, method) (rate(business_payments_total[5m]))",
+          "legendFormat": "{{result}} {{method}}"
         }
       ]
     },
     {
       "id": 6,
       "type": "timeseries",
-      "title": "Network transmit",
+      "title": "Active users",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
         "y": 16
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Bps"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (instance, device) (rate(node_network_transmit_bytes_total{job=\"node\",device!~\"lo\"}[5m]))",
-          "legendFormat": "{{instance}} {{device}}"
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "type": "timeseries",
-      "title": "Container CPU",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
       },
       "datasource": {
         "type": "prometheus",
@@ -307,50 +264,8 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]))",
-          "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
-        }
-      ]
-    },
-    {
-      "id": 8,
-      "type": "timeseries",
-      "title": "Container memory",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 24
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (namespace, pod, container) (container_memory_working_set_bytes{container!=\"\"})",
-          "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
+          "expr": "business_users_active",
+          "legendFormat": "{{service_name}} {{segment}}"
         }
       ]
     }
@@ -363,27 +278,33 @@
   },
   "links": [
     {
-      "title": "Overview",
+      "title": "Infrastructure",
       "type": "link",
-      "url": "/d/overview",
+      "url": "/d/infrastructure",
       "keepTime": true
     },
     {
-      "title": "Logs",
+      "title": "Middleware",
       "type": "link",
-      "url": "/d/logs",
+      "url": "/d/middleware",
       "keepTime": true
     },
     {
-      "title": "Traces",
+      "title": "Application",
       "type": "link",
-      "url": "/d/traces",
+      "url": "/d/application",
       "keepTime": true
     },
     {
-      "title": "Profiles",
+      "title": "Business",
       "type": "link",
-      "url": "/d/profiles",
+      "url": "/d/business",
+      "keepTime": true
+    },
+    {
+      "title": "Meta",
+      "type": "link",
+      "url": "/d/meta",
       "keepTime": true
     },
     {

@@ -9,7 +9,15 @@ import urllib.request
 os.environ["OTEL_ENABLED"] = "false"
 os.environ.pop("PYROSCOPE_SERVER_ADDRESS", None)
 
-from demo_app.server import _bounded_float, _bounded_int, handle_request, make_server  # noqa: E402
+from demo_app.business import BusinessRecorder, order_attributes, payment_attributes  # noqa: E402
+from demo_app.server import (  # noqa: E402
+    TELEMETRY,
+    _bounded_float,
+    _bounded_int,
+    handle_request,
+    make_server,
+    route_label,
+)
 from demo_app.telemetry import JsonFormatter, grpc_target  # noqa: E402
 from opentelemetry import trace  # noqa: E402
 from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
@@ -46,6 +54,39 @@ class HandlerTests(unittest.TestCase):
 
         status, _ = handle_request("GET", "/missing", {})
         self.assertEqual(status, 404)
+
+    def test_business_label_allow_list(self) -> None:
+        self.assertEqual(order_attributes("web"), {"channel": "web"})
+        self.assertEqual(order_attributes("user-42"), {"channel": "other"})
+        self.assertEqual(payment_attributes("wire", True), {"method": "other", "result": "failure"})
+        self.assertEqual(payment_attributes("card", False), {"method": "card", "result": "success"})
+        self.assertEqual(route_label("/api/orders"), "/api/orders")
+        self.assertEqual(route_label("/api/orders/12345"), "other")
+
+        class Fake:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
+
+            def add(self, amount: float, attributes: dict | None = None) -> None:
+                self.calls.append(("add", amount, attributes))
+
+            def record(self, amount: float, attributes: dict | None = None) -> None:
+                self.calls.append(("record", amount, attributes))
+
+            def set(self, amount: float, attributes: dict | None = None) -> None:
+                self.calls.append(("set", amount, attributes))
+
+        orders, payments, checkout, active = Fake(), Fake(), Fake(), Fake()
+        recorder = BusinessRecorder(orders, payments, checkout, active)
+        self.assertEqual(recorder.order_created("api")["channel"], "api")
+        self.assertEqual(orders.calls, [("add", 1, {"channel": "api"})])
+        recorded = recorder.payment("wallet", True, 0.2)
+        self.assertEqual(recorded["result"], "failure")
+        self.assertEqual(payments.calls[0][2]["method"], "wallet")
+        self.assertEqual(checkout.calls[0][0], "record")
+        self.assertEqual(checkout.calls[0][2], {"result": "failure"})
+        self.assertEqual(recorder.note_active("nope")["segment"], "anonymous")
+        self.assertEqual(active.calls[0][2], {"segment": "anonymous"})
 
     def test_query_bounds(self) -> None:
         self.assertEqual(_bounded_float({"seconds": ["99"]}, "seconds", 0.8, 5.0), 5.0)
@@ -111,3 +152,32 @@ class ServerTests(unittest.TestCase):
         status, body = self._get("/api/error")
         self.assertEqual(status, 500)
         self.assertEqual(body["error"], "forced failure")
+
+    def test_business_http(self) -> None:
+        class Fake:
+            def __init__(self) -> None:
+                self.calls: list[tuple] = []
+
+            def add(self, amount: float, attributes: dict | None = None) -> None:
+                self.calls.append(("add", amount, attributes))
+
+            def record(self, amount: float, attributes: dict | None = None) -> None:
+                self.calls.append(("record", amount, attributes))
+
+            def set(self, amount: float, attributes: dict | None = None) -> None:
+                self.calls.append(("set", amount, attributes))
+
+        orders, payments, checkout, active = Fake(), Fake(), Fake(), Fake()
+        TELEMETRY.business = BusinessRecorder(orders, payments, checkout, active)
+        status, body = self._get("/api/orders?channel=user-99")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["channel"], "other")
+        self.assertEqual(orders.calls[0][2], {"channel": "other"})
+        status, body = self._get("/api/checkout?method=card&fail=1&segment=authenticated&delay_ms=0")
+        self.assertEqual(status, 200)
+        self.assertEqual(body["result"], "failure")
+        self.assertEqual(body["method"], "card")
+        self.assertEqual(body["segment"], "authenticated")
+        self.assertEqual(payments.calls[0][2], {"method": "card", "result": "failure"})
+        self.assertEqual(active.calls[0][2], {"segment": "authenticated"})
+        self.assertGreaterEqual(checkout.calls[0][1], 0.0)

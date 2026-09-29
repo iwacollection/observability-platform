@@ -74,4 +74,18 @@ flowchart LR
 - Collector 的 profiles 管道在 0.161 里仍是 alpha，启动参数带 `service.profilesSupport`。
 - Demo 的 profile 主路径是 Pyroscope SDK 的 HTTP push。OTLP profiles 管道留给已经能导出 OTLP profile 的运行时。
 
-生产化时换成上游 Helm（见 README「后续演进」），不要把这份单二进制配置扩成多副本。
+生产化时换成上游 Helm（见 README「五层和后续演进」），不要把这份单二进制配置扩成多副本。
+
+## 五层监控
+
+同一套 Prometheus 和同一批 `config/` 文件覆盖五层，不另起一套监控产品。
+
+| 层 | 数据从哪来 | 规则和仪表盘 |
+| --- | --- | --- |
+| 基础 | node_exporter job `node`；Alloy unix 是 job `alloy-unix` 的副本；Kubernetes 上 cAdvisor 与 kube-state-metrics | `infrastructure` 告警组，仪表盘 UID `infrastructure` |
+| 中间件 | Redis、PostgreSQL、Nginx、Kafka 的 exporter，静态抓取 | `middleware` 组，UID `middleware` |
+| 应用 | demo 的 OTLP 直方图、在途请求、进程运行时 | `http-red` 与 SLO，UID `application` |
+| 业务 | demo 的 `business.*` 仪器，标签允许表在应用和 Collector | `business` 组，UID `business` |
+| 自身 | 各组件 `/metrics`，Collector `8888` | `meta-pipeline` 组，UID `meta` |
+
+kube-state-metrics 只在 Kubernetes 上由 Alloy 远程写入。Compose 的 Prometheus 配置不写这个目标，避免没有 API server 时 `TargetDown` 一直响。

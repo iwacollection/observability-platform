@@ -1,6 +1,6 @@
 {
-  "uid": "host",
-  "title": "Host and containers",
+  "uid": "application",
+  "title": "Application RED",
   "schemaVersion": 39,
   "version": 1,
   "refresh": "30s",
@@ -10,8 +10,8 @@
   "graphTooltip": 1,
   "tags": [
     "observability",
-    "host",
-    "container"
+    "application",
+    "red"
   ],
   "time": {
     "from": "now-1h",
@@ -21,11 +21,53 @@
     {
       "id": 1,
       "type": "timeseries",
-      "title": "CPU by mode",
+      "title": "Request rate",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 0,
+        "y": 0
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{http_route!=\"/healthz\"}[5m]))",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "type": "timeseries",
+      "title": "Error ratio",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
         "y": 0
       },
       "datasource": {
@@ -55,57 +97,15 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, mode) (rate(node_cpu_seconds_total{job=\"node\"}[5m]))",
-          "legendFormat": "{{instance}} {{mode}}"
-        }
-      ]
-    },
-    {
-      "id": 2,
-      "type": "timeseries",
-      "title": "Load average",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 0
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "short"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_load1{job=\"node\"}",
-          "legendFormat": "{{instance}}"
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(http_server_request_duration_seconds_count{http_route!=\"/healthz\"}[5m]))",
+          "legendFormat": "{{service_name}}"
         }
       ]
     },
     {
       "id": 3,
       "type": "timeseries",
-      "title": "Memory",
+      "title": "Latency p95",
       "gridPos": {
         "h": 8,
         "w": 12,
@@ -118,7 +118,7 @@
       },
       "fieldConfig": {
         "defaults": {
-          "unit": "bytes"
+          "unit": "s"
         },
         "overrides": []
       },
@@ -139,146 +139,20 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_memory_MemAvailable_bytes{job=\"node\"}",
-          "legendFormat": "available {{instance}}"
+          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket{http_route!=\"/healthz\"}[5m])))",
+          "legendFormat": "{{service_name}}"
         }
       ]
     },
     {
       "id": 4,
       "type": "timeseries",
-      "title": "Filesystem available",
+      "title": "In-flight requests",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
         "y": 8
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "bytes"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "node_filesystem_avail_bytes{job=\"node\",fstype!~\"tmpfs|overlay|squashfs|ramfs|aufs\"}",
-          "legendFormat": "{{instance}} {{mountpoint}}"
-        }
-      ]
-    },
-    {
-      "id": 5,
-      "type": "timeseries",
-      "title": "Network receive",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 16
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Bps"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (instance, device) (rate(node_network_receive_bytes_total{job=\"node\",device!~\"lo\"}[5m]))",
-          "legendFormat": "{{instance}} {{device}}"
-        }
-      ]
-    },
-    {
-      "id": 6,
-      "type": "timeseries",
-      "title": "Network transmit",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 16
-      },
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "unit": "Bps"
-        },
-        "overrides": []
-      },
-      "options": {
-        "legend": {
-          "displayMode": "list",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "targets": [
-        {
-          "refId": "A",
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "expr": "sum by (instance, device) (rate(node_network_transmit_bytes_total{job=\"node\",device!~\"lo\"}[5m]))",
-          "legendFormat": "{{instance}} {{device}}"
-        }
-      ]
-    },
-    {
-      "id": 7,
-      "type": "timeseries",
-      "title": "Container CPU",
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 24
       },
       "datasource": {
         "type": "prometheus",
@@ -307,20 +181,62 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]))",
-          "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
+          "expr": "service:http_inflight:sum",
+          "legendFormat": "{{service_name}}"
         }
       ]
     },
     {
-      "id": 8,
+      "id": 5,
       "type": "timeseries",
-      "title": "Container memory",
+      "title": "Process CPU",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "service:process_cpu_utilization:ratio",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 6,
+      "type": "timeseries",
+      "title": "Process memory RSS",
       "gridPos": {
         "h": 8,
         "w": 12,
         "x": 12,
-        "y": 24
+        "y": 16
       },
       "datasource": {
         "type": "prometheus",
@@ -349,8 +265,92 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (namespace, pod, container) (container_memory_working_set_bytes{container!=\"\"})",
-          "legendFormat": "{{namespace}}/{{pod}}/{{container}}"
+          "expr": "process_runtime_cpython_memory_bytes{type=\"rss\"}",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 7,
+      "type": "timeseries",
+      "title": "Latency SLO good ratio",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:http_latency_good:ratio_rate5m",
+          "legendFormat": "{{service_name}}"
+        }
+      ]
+    },
+    {
+      "id": 8,
+      "type": "timeseries",
+      "title": "Availability error ratio",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "slo:http_errors:ratio_rate5m",
+          "legendFormat": "{{service_name}}"
         }
       ]
     }
@@ -363,27 +363,33 @@
   },
   "links": [
     {
-      "title": "Overview",
+      "title": "Infrastructure",
       "type": "link",
-      "url": "/d/overview",
+      "url": "/d/infrastructure",
       "keepTime": true
     },
     {
-      "title": "Logs",
+      "title": "Middleware",
       "type": "link",
-      "url": "/d/logs",
+      "url": "/d/middleware",
       "keepTime": true
     },
     {
-      "title": "Traces",
+      "title": "Application",
       "type": "link",
-      "url": "/d/traces",
+      "url": "/d/application",
       "keepTime": true
     },
     {
-      "title": "Profiles",
+      "title": "Business",
       "type": "link",
-      "url": "/d/profiles",
+      "url": "/d/business",
+      "keepTime": true
+    },
+    {
+      "title": "Meta",
+      "type": "link",
+      "url": "/d/meta",
       "keepTime": true
     },
     {
