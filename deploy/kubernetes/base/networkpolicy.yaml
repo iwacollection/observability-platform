@@ -1,0 +1,27 @@
+# Ingress is limited to the namespace, plus the ports other namespaces must reach:
+# Grafana, the collector OTLP receivers, and the demo service.
+# Egress stays open so DNS, kube-apiserver, and node metrics via the API proxy work.
+# Tighten egress before exposing this namespace on a shared cluster.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-default
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - podSelector: {}
+    - ports:
+        - protocol: TCP
+          port: 3000
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 8080
+  egress:
+    - {}

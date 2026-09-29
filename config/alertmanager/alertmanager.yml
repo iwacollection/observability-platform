@@ -1,0 +1,47 @@
+# Local-safe routing tree.
+# critical and warning receivers are intentionally empty, which Alertmanager
+# treats as a blackhole: alerts stay visible in the UI and are not sent anywhere.
+# webhook-example is wired only when an alert carries notify="webhook".
+# Replace that URL with a real receiver before depending on pages.
+# Do not commit tokens. If a receiver needs a secret, mount a file from a
+# Kubernetes Secret or a Compose secret that is not stored in git.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: blackhole
+  group_by: ["alertname", "service_name", "namespace", "job"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - notify="webhook"
+      receiver: webhook-example
+      continue: false
+    - matchers:
+        - severity="critical"
+      receiver: critical
+      continue: false
+    - matchers:
+        - severity="warning"
+      receiver: warning
+      continue: false
+
+inhibit_rules:
+  # A critical alert suppresses the warning of the same name on the same target.
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ["alertname", "service_name", "namespace", "job"]
+
+receivers:
+  - name: blackhole
+  - name: critical
+  - name: warning
+  - name: webhook-example
+    webhook_configs:
+      - url: "http://alerts.example.invalid/alerts"
+        send_resolved: true

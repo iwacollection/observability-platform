@@ -1,0 +1,85 @@
+# Gateway collector. Docker Compose and Kubernetes both mount this file.
+# Profiles are alpha in collector 0.161 and need:
+#   --feature-gates=service.profilesSupport
+# Application OTLP enters here and is fanned out:
+#   metrics  -> Prometheus remote write
+#   logs     -> Loki native OTLP (/otlp/v1/logs)
+#   traces   -> Tempo OTLP gRPC
+#   profiles -> Pyroscope OTLP gRPC on :4040 (Pyroscope does not speak OTLP/HTTP)
+
+extensions:
+  health_check:
+    endpoint: 0.0.0.0:13133
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+      http:
+        endpoint: 0.0.0.0:4318
+
+processors:
+  # memory_limiter must be the first processor in every pipeline that uses it.
+  memory_limiter:
+    check_interval: 1s
+    limit_percentage: 75
+    spike_limit_percentage: 20
+  batch:
+    timeout: 5s
+    send_batch_size: 1024
+    send_batch_max_size: 2048
+
+exporters:
+  prometheusremotewrite:
+    endpoint: http://prometheus:9090/api/v1/write
+    resource_to_telemetry_conversion:
+      enabled: true
+    remote_write_queue:
+      enabled: true
+      num_consumers: 4
+      queue_size: 2000
+  otlphttp/loki:
+    endpoint: http://loki:3100/otlp
+    tls:
+      insecure: true
+  otlp/tempo:
+    endpoint: tempo:4317
+    tls:
+      insecure: true
+  otlp/pyroscope:
+    endpoint: pyroscope:4040
+    tls:
+      insecure: true
+
+service:
+  extensions: [health_check]
+  telemetry:
+    logs:
+      level: info
+    metrics:
+      level: detailed
+      readers:
+        - pull:
+            exporter:
+              prometheus:
+                host: 0.0.0.0
+                port: 8888
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [prometheusremotewrite]
+    logs:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlphttp/loki]
+    traces:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [otlp/tempo]
+    # batch does not implement the profiles signal in collector 0.161.
+    profiles:
+      receivers: [otlp]
+      processors: [memory_limiter]
+      exporters: [otlp/pyroscope]

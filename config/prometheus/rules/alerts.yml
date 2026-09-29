@@ -1,0 +1,170 @@
+# Platform and SLO alerts. Receivers are selected in Alertmanager by severity.
+# Keep annotations stable: config/prometheus/tests/alerts_test.yml matches them.
+groups:
+  - name: platform-availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Scrape target is down"
+          description: "{{ $labels.job }}/{{ $labels.instance }} has been unreachable for more than 2 minutes."
+
+      - alert: CollectorExportFailures
+        expr: |
+          (
+            sum(rate(otelcol_exporter_send_failed_spans_total[5m]))
+            or
+            sum(rate(otelcol_exporter_send_failed_spans[5m]))
+          ) > 0
+          or
+          (
+            sum(rate(otelcol_exporter_send_failed_metric_points_total[5m]))
+            or
+            sum(rate(otelcol_exporter_send_failed_metric_points[5m]))
+          ) > 0
+          or
+          (
+            sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))
+            or
+            sum(rate(otelcol_exporter_send_failed_log_records[5m]))
+          ) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "OpenTelemetry Collector is failing to export telemetry"
+          description: "Exporter send failures have been non-zero for 5 minutes. Metrics, logs, or traces are being dropped after retry."
+
+      - alert: CollectorRefusedData
+        expr: |
+          (
+            sum(rate(otelcol_receiver_refused_spans_total[5m]))
+            or
+            sum(rate(otelcol_receiver_refused_spans[5m]))
+          ) > 0
+          or
+          (
+            sum(rate(otelcol_processor_dropped_spans_total[5m]))
+            or
+            sum(rate(otelcol_processor_dropped_spans[5m]))
+          ) > 0
+          or
+          (
+            sum(rate(otelcol_processor_dropped_metric_points_total[5m]))
+            or
+            sum(rate(otelcol_processor_dropped_metric_points[5m]))
+          ) > 0
+          or
+          (
+            sum(rate(otelcol_processor_dropped_log_records_total[5m]))
+            or
+            sum(rate(otelcol_processor_dropped_log_records[5m]))
+          ) > 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "OpenTelemetry Collector is refusing or dropping data"
+          description: "The collector memory limiter or a receiver is dropping telemetry. Raise memory or reduce cardinality."
+
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"}
+            /
+            node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"}
+          ) < 0.15
+          and
+          node_filesystem_size_bytes{fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"} > 0
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "Filesystem free space is below 15%"
+          description: "{{ $labels.instance }} {{ $labels.mountpoint }} has less than 15% free space."
+
+  - name: http-red
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (service_name) (
+              rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[5m])
+            )
+            /
+            sum by (service_name) (
+              rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
+            )
+          ) > 0.05
+          and
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP 5xx error ratio is above 5%"
+          description: "{{ $labels.service_name }} error ratio is {{ $value | humanizePercentage }} over 5 minutes."
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (service_name, le) (
+              rate(http_server_request_duration_seconds_bucket{http_route!="/healthz"}[5m])
+            )
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: "HTTP p95 latency is above 500ms"
+          description: "{{ $labels.service_name }} p95 latency is {{ $value | humanizeDuration }}."
+
+  - name: slo-burn
+    rules:
+      # 99.9% availability. Fast burn 14.4x consumes 2% of the 30-day budget in 1 hour.
+      - alert: SLOAvailabilityFastBurn
+        expr: |
+          slo:http_errors:ratio_rate5m > (14.4 * 0.001)
+          and
+          slo:http_errors:ratio_rate1h > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: critical
+          slo: availability
+        annotations:
+          summary: "Availability SLO fast burn"
+          description: "{{ $labels.service_name }} is burning the 99.9% availability budget at more than 14.4x."
+
+      # Slow burn 6x consumes 5% of the 30-day budget in 6 hours.
+      - alert: SLOAvailabilitySlowBurn
+        expr: |
+          slo:http_errors:ratio_rate30m > (6 * 0.001)
+          and
+          slo:http_errors:ratio_rate6h > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: warning
+          slo: availability
+        annotations:
+          summary: "Availability SLO slow burn"
+          description: "{{ $labels.service_name }} is burning the 99.9% availability budget at more than 6x."
+
+      # 99% of requests under 300ms. Budget is 1%. Fast burn 14.4x.
+      - alert: SLOLatencyFastBurn
+        expr: |
+          (1 - slo:http_latency_good:ratio_rate5m) > (14.4 * 0.01)
+          and
+          (1 - slo:http_latency_good:ratio_rate1h) > (14.4 * 0.01)
+        for: 2m
+        labels:
+          severity: critical
+          slo: latency
+        annotations:
+          summary: "Latency SLO fast burn"
+          description: "{{ $labels.service_name }} is missing the 300ms latency objective fast enough to page."

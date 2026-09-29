@@ -1,0 +1,14 @@
+apiVersion: 1
+
+# Placeholder contact point. The URL uses the reserved .invalid TLD, so Grafana
+# cannot deliver a notification to a real system until you edit this file.
+contactPoints:
+  - orgId: 1
+    name: blackhole
+    receivers:
+      - uid: blackhole-webhook
+        type: webhook
+        disableResolveMessage: false
+        settings:
+          url: http://alerts.example.invalid/grafana
+          httpMethod: POST

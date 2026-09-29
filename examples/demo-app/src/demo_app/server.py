@@ -1,0 +1,143 @@
+"""HTTP demo with a healthy route, a working route, a slow route, and a 500."""
+
+from __future__ import annotations
+
+import json
+import logging
+import os
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+from opentelemetry.trace import Status, StatusCode
+
+from demo_app.telemetry import setup_logging, setup_telemetry
+
+LOGGER = setup_logging()
+TRACER, HISTOGRAM = setup_telemetry(LOGGER)
+
+
+def burn_cpu(milliseconds: int) -> int:
+    """Busy-loop so CPU profiles have a stable stack under this function."""
+    deadline = time.perf_counter() + (milliseconds / 1000)
+    value = 0
+    while time.perf_counter() < deadline:
+        value = (value * 33 + 1) % 1_000_003
+    return value
+
+
+def handle_request(method: str, path: str, query: dict[str, list[str]]) -> tuple[int, dict]:
+    if method != "GET":
+        return 405, {"error": "method not allowed", "method": method}
+
+    if path in {"/", "/healthz"}:
+        return 200, {"status": "ok", "service": "demo-app"}
+
+    if path == "/api/work":
+        burned = burn_cpu(_bounded_int(query, "burn_ms", default=40, upper=2000))
+        return 200, {"status": "ok", "route": path, "checksum": burned}
+
+    if path == "/api/slow":
+        delay = _bounded_float(query, "seconds", default=0.8, upper=5.0)
+        time.sleep(delay)
+        return 200, {"status": "ok", "route": path, "slept": delay}
+
+    if path == "/api/error":
+        return 500, {"status": "error", "route": path, "error": "forced failure"}
+
+    return 404, {"error": "not found", "route": path}
+
+
+def _bounded_int(query: dict[str, list[str]], key: str, default: int, upper: int) -> int:
+    raw = query.get(key, [str(default)])[0]
+    try:
+        value = int(raw)
+    except ValueError:
+        value = default
+    return max(0, min(value, upper))
+
+
+def _bounded_float(query: dict[str, list[str]], key: str, default: float, upper: float) -> float:
+    raw = query.get(key, [str(default)])[0]
+    try:
+        value = float(raw)
+    except ValueError:
+        value = default
+    return max(0.0, min(value, upper))
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def do_GET(self) -> None:  # noqa: N802 - stdlib handler name
+        self._dispatch()
+
+    def do_POST(self) -> None:  # noqa: N802
+        self._dispatch()
+
+    def log_message(self, fmt: str, *args) -> None:
+        # Access logs go through the structured logger inside _dispatch.
+        return
+
+    def _dispatch(self) -> None:
+        parsed = urlparse(self.path)
+        route = parsed.path or "/"
+        query = parse_qs(parsed.query)
+        start = time.perf_counter()
+        status = 500
+        with TRACER.start_as_current_span(route) as span:
+            span.set_attribute("http.request.method", self.command)
+            span.set_attribute("http.route", route)
+            try:
+                status, body = handle_request(self.command, route, query)
+            except Exception:
+                LOGGER.exception("request failed", extra={})
+                status = 500
+                body = {"status": "error", "route": route, "error": "internal error"}
+                span.set_status(Status(StatusCode.ERROR))
+            span.set_attribute("http.response.status_code", status)
+            if status >= 500:
+                span.set_status(Status(StatusCode.ERROR, "server error"))
+            duration = time.perf_counter() - start
+            HISTOGRAM.record(
+                duration,
+                attributes={
+                    "http.request.method": self.command,
+                    "http.response.status_code": status,
+                    "http.route": route,
+                },
+            )
+            if route != "/healthz":
+                LOGGER.log(
+                    logging.ERROR if status >= 500 else logging.INFO,
+                    "request method=%s route=%s status=%s duration_s=%.4f",
+                    self.command,
+                    route,
+                    status,
+                    duration,
+                )
+            payload = json.dumps(body).encode("utf-8")
+            self.send_response(status)
+            self.send_header("Content-Type", "application/json")
+            self.send_header("Content-Length", str(len(payload)))
+            self.end_headers()
+            self.wfile.write(payload)
+
+
+def make_server(host: str, port: int) -> ThreadingHTTPServer:
+    return ThreadingHTTPServer((host, port), Handler)
+
+
+def main() -> None:
+    raw = os.environ.get("DEMO_LISTEN_ADDR", "0.0.0.0:8080")
+    host, _, port_text = raw.rpartition(":")
+    host = host or "0.0.0.0"
+    port = int(port_text or "8080")
+    server = make_server(host, port)
+    LOGGER.info("listening addr=%s:%s", host, port)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()

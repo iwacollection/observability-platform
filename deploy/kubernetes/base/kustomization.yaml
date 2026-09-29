@@ -1,0 +1,69 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Config files live in /config so Compose can mount the same bytes.
+# Build with: kustomize build --load-restrictor LoadRestrictionsNone
+namespace: observability
+resources:
+  - namespace.yaml
+  - otel-collector.yaml
+  - prometheus.yaml
+  - alertmanager.yaml
+  - loki.yaml
+  - tempo.yaml
+  - pyroscope.yaml
+  - grafana.yaml
+  - alloy.yaml
+  - demo-app.yaml
+  - networkpolicy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: observability-platform
+    includeSelectors: false
+configMapGenerator:
+  - name: otel-collector-config
+    files:
+      - config.yaml=../../../config/otel-collector/config.yaml
+  - name: prometheus-config
+    files:
+      - prometheus.yml=../../../config/prometheus/prometheus.yml
+  - name: prometheus-rules
+    files:
+      - alerts.yml=../../../config/prometheus/rules/alerts.yml
+      - recording.yml=../../../config/prometheus/rules/recording.yml
+  - name: alertmanager-config
+    files:
+      - alertmanager.yml=../../../config/alertmanager/alertmanager.yml
+  - name: loki-config
+    files:
+      - loki.yaml=../../../config/loki/loki.yaml
+  - name: tempo-config
+    files:
+      - tempo.yaml=../../../config/tempo/tempo.yaml
+  - name: pyroscope-config
+    files:
+      - config.yaml=../../../config/pyroscope/config.yaml
+  - name: alloy-config
+    files:
+      - config.k8s.alloy=../../../config/alloy/config.k8s.alloy
+  - name: grafana-datasources
+    files:
+      - datasources.yaml=../../../config/grafana/provisioning/datasources/datasources.yaml
+  - name: grafana-dashboards-provider
+    files:
+      - dashboards.yaml=../../../config/grafana/provisioning/dashboards/dashboards.yaml
+  - name: grafana-alerting
+    files:
+      - contact-points.yaml=../../../config/grafana/provisioning/alerting/contact-points.yaml
+      - policies.yaml=../../../config/grafana/provisioning/alerting/policies.yaml
+      - rules.yaml=../../../config/grafana/provisioning/alerting/rules.yaml
+  - name: grafana-dashboards
+    files:
+      - overview.json=../../../config/grafana/dashboards/overview.json
+      - logs.json=../../../config/grafana/dashboards/logs.json
+      - traces.json=../../../config/grafana/dashboards/traces.json
+      - profiles.json=../../../config/grafana/dashboards/profiles.json
+      - host.json=../../../config/grafana/dashboards/host.json
+      - demo-app.json=../../../config/grafana/dashboards/demo-app.json
+generatorOptions:
+  annotations:
+    app.kubernetes.io/part-of: observability-platform

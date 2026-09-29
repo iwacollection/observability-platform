@@ -1,0 +1,58 @@
+rule_files:
+  - ../rules/alerts.yml
+  - ../rules/recording.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="prometheus",instance="prometheus:9090"}'
+        values: "1 1 0 0 0 0"
+      - series: 'http_server_request_duration_seconds_count{service_name="demo-app",http_route="/api/work",http_response_status_code="200"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_count{service_name="demo-app",http_route="/api/error",http_response_status_code="500"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/work",le="0.3"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/work",le="0.5"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/work",le="+Inf"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/error",le="0.3"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/error",le="0.5"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/error",le="+Inf"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: TargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels:
+              alertname: TargetDown
+              severity: critical
+              job: prometheus
+              instance: prometheus:9090
+            exp_annotations:
+              summary: "Scrape target is down"
+              description: "prometheus/prometheus:9090 has been unreachable for more than 2 minutes."
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              alertname: HighErrorRate
+              severity: warning
+              service_name: demo-app
+            exp_annotations:
+              summary: "HTTP 5xx error ratio is above 5%"
+              description: "demo-app error ratio is 50% over 5 minutes."
+    promql_expr_test:
+      - expr: slo:http_errors:ratio_rate5m{service_name="demo-app"}
+        eval_time: 10m
+        exp_samples:
+          - labels: 'slo:http_errors:ratio_rate5m{service_name="demo-app"}'
+            value: 0.5

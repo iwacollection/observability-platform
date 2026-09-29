@@ -1,0 +1,81 @@
+# Single-binary Loki for local and small clusters.
+# Scalable mode (read/write/backend, object storage, memberlist) is a different
+# topology. Use the Grafana Loki Helm chart for that and keep this file as the
+# schema/limits reference. Do not point a multi-replica deployment at this file:
+# the filesystem store and in-memory ring are single-process.
+
+auth_enabled: false
+
+server:
+  http_listen_address: 0.0.0.0
+  http_listen_port: 3100
+  grpc_listen_port: 9096
+  log_level: info
+  grpc_server_max_concurrent_streams: 1000
+
+common:
+  instance_addr: 127.0.0.1
+  path_prefix: /loki
+  storage:
+    filesystem:
+      chunks_directory: /loki/chunks
+      rules_directory: /loki/rules
+  replication_factor: 1
+  ring:
+    kvstore:
+      store: inmemory
+
+query_range:
+  results_cache:
+    cache:
+      embedded_cache:
+        enabled: true
+        max_size_mb: 100
+
+schema_config:
+  configs:
+    - from: 2024-04-01
+      store: tsdb
+      object_store: filesystem
+      schema: v13
+      index:
+        prefix: index_
+        period: 24h
+
+limits_config:
+  retention_period: 168h
+  max_query_lookback: 168h
+  ingestion_rate_mb: 16
+  ingestion_burst_size_mb: 32
+  volume_enabled: true
+  allow_structured_metadata: true
+  discover_log_levels: true
+  metric_aggregation_enabled: true
+  otlp_config:
+    resource_attributes:
+      attributes_config:
+        - action: index_label
+          attributes:
+            - service.name
+            - service.namespace
+            - service.instance.id
+            - deployment.environment
+            - deployment.environment.name
+
+compactor:
+  working_directory: /loki/compactor
+  compaction_interval: 10m
+  retention_enabled: true
+  retention_delete_delay: 2h
+  delete_request_store: filesystem
+
+pattern_ingester:
+  enabled: true
+  metric_aggregation:
+    loki_address: 127.0.0.1:3100
+
+frontend:
+  encoding: protobuf
+
+analytics:
+  reporting_enabled: false

@@ -1,0 +1,104 @@
+# SLO recording rules for the demo HTTP server and any service that emits
+# http.server.request.duration via OTLP. The collector's prometheusremotewrite
+# exporter names that histogram http_server_request_duration_seconds.
+# /healthz is excluded so probes do not dilute the error budget.
+groups:
+  - name: slo-recording
+    interval: 30s
+    rules:
+      - record: slo:http_requests:rate5m
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
+          )
+
+      - record: slo:http_errors:ratio_rate5m
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[5m])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
+          )
+
+      - record: slo:http_errors:ratio_rate30m
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[30m])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[30m])
+          )
+
+      - record: slo:http_errors:ratio_rate1h
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[1h])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[1h])
+          )
+
+      - record: slo:http_errors:ratio_rate6h
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[6h])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[6h])
+          )
+
+      - record: slo:http_errors:ratio_rate1d
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[1d])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[1d])
+          )
+
+      - record: slo:http_errors:ratio_rate3d
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[3d])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[3d])
+          )
+
+      # Fraction of requests at or under the 300ms latency objective.
+      - record: slo:http_latency_good:ratio_rate5m
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_bucket{http_route!="/healthz",le="0.3"}[5m])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
+          )
+
+      - record: slo:http_latency_good:ratio_rate1h
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_bucket{http_route!="/healthz",le="0.3"}[1h])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[1h])
+          )
+
+      - record: slo:http_latency_good:ratio_rate6h
+        expr: |
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_bucket{http_route!="/healthz",le="0.3"}[6h])
+          )
+          /
+          sum by (service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[6h])
+          )

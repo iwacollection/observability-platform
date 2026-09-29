@@ -1,0 +1,34 @@
+# Single-binary Pyroscope. The image VOLUME is /data and is owned by uid 10001,
+# so every path below stays under /data. architecture_storage is left at the
+# binary default (v1-v2-dual), which is what the upstream Docker examples run.
+# Microservices and object storage belong on the Grafana Pyroscope Helm chart.
+
+server:
+  http_listen_port: 4040
+  grpc_listen_port: 9095
+  log_level: info
+
+storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/v2/shared
+
+pyroscopedb:
+  data_path: /data/v1
+
+metastore:
+  data_dir: /data/v2/metastore/data
+  raft:
+    dir: /data/v2/metastore/raft
+
+self_profiling:
+  disable_push: false
+
+limits:
+  ingestion_rate_mb: 32
+  ingestion_burst_size_mb: 48
+  # Applies to the v1 write path. 0 would keep blocks forever.
+  compactor_blocks_retention_period: 168h
+
+analytics:
+  reporting_enabled: false

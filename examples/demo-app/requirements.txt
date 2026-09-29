@@ -1,0 +1,6 @@
+opentelemetry-api==1.45.0
+opentelemetry-sdk==1.45.0
+opentelemetry-exporter-otlp-proto-grpc==1.45.0
+opentelemetry-instrumentation-logging==0.66b0
+pyroscope-io==1.2.4
+pyroscope-otel==1.1.0

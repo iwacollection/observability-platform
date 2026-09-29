@@ -1,0 +1,52 @@
+// Local node agent. Compose mounts host /proc, /sys, and / at /host/*.
+// Kubernetes uses config/alloy/config.k8s.alloy instead: discovery differs,
+// the remote-write and Loki push URLs do not.
+//
+// This agent does not scrape application RED metrics. Those arrive from the
+// OpenTelemetry Collector via remote write. Pointing an app at Alloy's OTLP
+// receiver forwards the same three signals to the collector gateway.
+
+prometheus.exporter.unix "node" {
+	procfs_path = "/host/proc"
+	sysfs_path  = "/host/sys"
+	rootfs_path = "/host/root"
+}
+
+prometheus.scrape "node" {
+	targets         = prometheus.exporter.unix.node.targets
+	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	scrape_interval = "15s"
+	job_name        = "node"
+}
+
+prometheus.remote_write "prometheus" {
+	endpoint {
+		url = "http://prometheus:9090/api/v1/write"
+	}
+}
+
+otelcol.receiver.otlp "apps" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		metrics = [otelcol.exporter.otlp.gateway.input]
+		logs    = [otelcol.exporter.otlp.gateway.input]
+		traces  = [otelcol.exporter.otlp.gateway.input]
+	}
+}
+
+otelcol.exporter.otlp "gateway" {
+	client {
+		endpoint = "otel-collector:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}
