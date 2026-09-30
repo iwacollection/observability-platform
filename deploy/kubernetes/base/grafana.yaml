@@ -23,6 +23,9 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: grafana
+      annotations:
+        # kubectl-apply.sh replaces this when TF_VAR_alert_webhook_url is set.
+        observability.platform/alert-paging: unconfigured
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -66,6 +69,12 @@ spec:
                   key: token
             - name: INGEST_AUTHORIZATION
               value: "Bearer $(INGEST_TOKEN)"
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alert-webhook
+                  key: url
+                  optional: true
           ports:
             - name: http
               containerPort: 3000
@@ -88,11 +97,15 @@ spec:
             readOnlyRootFilesystem: false
             capabilities:
               drop: ["ALL"]
+          command: ["/bin/sh", "/etc/grafana/alerting-src/render-alerting.sh"]
           volumeMounts:
             - name: datasources
               mountPath: /etc/grafana/provisioning/datasources
             - name: dashboard-provider
               mountPath: /etc/grafana/provisioning/dashboards
+            - name: alerting-src
+              mountPath: /etc/grafana/alerting-src
+              readOnly: true
             - name: alerting
               mountPath: /etc/grafana/provisioning/alerting
             - name: dashboards
@@ -106,9 +119,11 @@ spec:
         - name: dashboard-provider
           configMap:
             name: grafana-dashboards-provider
-        - name: alerting
+        - name: alerting-src
           configMap:
             name: grafana-alerting
+        - name: alerting
+          emptyDir: {}
         - name: dashboards
           configMap:
             name: grafana-dashboards

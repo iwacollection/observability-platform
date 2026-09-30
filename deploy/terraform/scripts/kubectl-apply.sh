@@ -40,6 +40,55 @@ case "$ingest_secret_mode" in
     ;;
 esac
 
+# Secret alert-webhook holds the paging URL. The value comes from
+# ALERT_WEBHOOK_URL, which Terraform sets from TF_VAR_alert_webhook_url.
+# Empty deletes the Secret. The Deployment reads it with optional: true,
+# and the entrypoint then leaves critical and warning in the UI.
+write_alert_webhook() {
+  if [[ "${MANAGE_ALERT_WEBHOOK:-}" != "true" ]]; then
+    return 0
+  fi
+  "${kc[@]}" create namespace observability --dry-run=client -o yaml | "${kc[@]}" apply -f -
+  if [[ -z "${ALERT_WEBHOOK_URL:-}" ]]; then
+    "${kc[@]}" -n observability delete secret alert-webhook --ignore-not-found
+    return 0
+  fi
+  case "$ALERT_WEBHOOK_URL" in
+    http://*|https://*) ;;
+    *)
+      echo "ALERT_WEBHOOK_URL must start with http:// or https://" >&2
+      exit 1
+      ;;
+  esac
+  rest=$(printf '%s' "$ALERT_WEBHOOK_URL" | tr -d '[:alnum:]:/?#\[\]@!$&()*+,;=%._~-')
+  if [ -n "$rest" ]; then
+    echo "ALERT_WEBHOOK_URL contains characters that are not written into the Secret" >&2
+    exit 1
+  fi
+  "${kc[@]}" -n observability create secret generic alert-webhook \
+    --from-literal=url="$ALERT_WEBHOOK_URL" \
+    --dry-run=client -o yaml | "${kc[@]}" apply -f -
+}
+
+write_cluster_binding() {
+  if [[ -z "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
+    return 0
+  fi
+  "${kc[@]}" apply -f - <<EOF
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-cluster-binding
+  namespace: observability
+  labels:
+    app.kubernetes.io/part-of: observability-platform
+    observability.platform/cluster: ${ENDPOINTS_CLUSTER_NAME}
+data:
+  cluster: ${ENDPOINTS_CLUSTER_NAME}
+  managed_by: terraform-kubectl
+EOF
+}
+
 write_ingest_secret() {
   if [[ "$ingest_secret_mode" != "script" || -z "${INGEST_TOKEN:-}" ]]; then
     return 0
@@ -98,6 +147,12 @@ if [[ "$action" == "delete" ]]; then
   "${kc[@]}" delete -f "$manifest" --ignore-not-found
   if [[ "${DELETE_ENDPOINTS:-}" == "true" ]]; then
     "${kc[@]}" -n observability delete configmap observability-endpoints --ignore-not-found
+    "${kc[@]}" -n observability delete configmap observability-cluster-binding --ignore-not-found
+  fi
+  if [[ "${MANAGE_ALERT_WEBHOOK:-}" == "true" ]]; then
+    if "${kc[@]}" get namespace observability >/dev/null 2>&1; then
+      "${kc[@]}" -n observability delete secret alert-webhook --ignore-not-found
+    fi
   fi
   exit 0
 fi
@@ -125,6 +180,27 @@ if [[ -n "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
     --from-literal=OTEL_EXPORTER_TLS_INSECURE="${ENDPOINTS_EXPORTER_TLS_INSECURE:-false}" \
     --from-literal=OTEL_EXPORTER_TLS_CA_FILE="${ENDPOINTS_EXPORTER_TLS_CA_FILE:-}" \
     --dry-run=client -o yaml | "${kc[@]}" apply -f -
+  write_cluster_binding
+fi
+
+write_alert_webhook
+
+if [[ "${MANAGE_ALERT_WEBHOOK:-}" == "true" ]]; then
+  python3 - "$manifest" "${ALERT_WEBHOOK_URL:-}" <<'PY'
+import hashlib
+import sys
+from pathlib import Path
+
+path, url = sys.argv[1], sys.argv[2]
+text = Path(path).read_text()
+marker = "observability.platform/alert-paging: unconfigured"
+if marker not in text:
+    raise SystemExit("alert-paging annotation missing from the rendered stack")
+value = "unconfigured"
+if url:
+    value = hashlib.sha256(url.encode()).hexdigest()[:16]
+Path(path).write_text(text.replace(marker, f"observability.platform/alert-paging: {value}"))
+PY
 fi
 
 if [[ -n "${WORKLOAD_COLLECTOR_REPLICAS:-}" ]]; then

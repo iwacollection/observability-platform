@@ -45,7 +45,7 @@ exporter_tls_insecure = false
 
 # Default false: agent only. true also installs the generated ToC/ToB demos
 # (demo-app and business-workloads.yaml). Replica counts follow tenancy.yaml
-# replicas, so northwind stays at 0 until that catalog field changes.
+# replicas. acme and northwind are both 1 in the catalog.
 install_demo_workloads = false
 
 # true when the existing Prometheus is this repo's binary. The rule file is

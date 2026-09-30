@@ -51,6 +51,18 @@ variable "ingest_token" {
   description = "Bearer token for Secret ingest-auth. Required when overlay is prod: the Kubernetes provider creates the Secret. On dev, a non-empty value overrides the overlay placeholder. Never commit the value."
 }
 
+variable "alert_webhook_url" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "When set (TF_VAR_alert_webhook_url), Alertmanager and Grafana route severity critical and warning to this http(s) webhook. When null or empty, receivers stay intentionally unconfigured and alerts stay in the UI. Never commit the value."
+
+  validation {
+    condition     = var.alert_webhook_url == null || var.alert_webhook_url == "" || can(regex("^https?://[^\\s\"']+$", var.alert_webhook_url))
+    error_message = "alert_webhook_url must be an http or https URL without spaces or quotes, or unset."
+  }
+}
+
 variable "generated_workload_names" {
   type        = list(string)
   description = "Deployment and Service names rendered from config/tenancy.yaml, excluding demo-app. Passed by stacks/platform."

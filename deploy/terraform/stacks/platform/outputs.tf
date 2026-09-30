@@ -35,6 +35,11 @@ output "workload_remote_write_urls" {
   description = "Central remote-write URL configured for each applied workload cluster."
 }
 
+output "alert_paging_enabled" {
+  value       = module.central.alert_paging_enabled
+  description = "True when TF_VAR_alert_webhook_url is set. The URL is not an output."
+}
+
 output "central_managed_components" {
   value       = module.central.managed_component_names
   description = "Components the central module declares and terraform apply installs."

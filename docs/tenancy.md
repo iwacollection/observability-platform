@@ -66,7 +66,7 @@ Alertmanager 按 `alertname`、`cluster`、`business_line`、`tenant`、`service
 | `tob-admin-northwind` | ToB | `northwind` | admin | 8084 | `tob-admin` |
 | `tob-billing-northwind` | ToB | `northwind` | billing | 8085 | `tob-billing` |
 
-`acme` 和 `northwind` 都在本地 Compose 以及 dev overlay 里启动。`northwind` 的两个 Deployment 在 base 和 prod 的副本数是 0，dev overlay 的 patch 把它们改成 1。`:8080` 仍是原来的 demo 路由（`/api/work`、`/api/orders`、`/api/checkout`、`/api/error`），服务名改成了 `toc-api`。
+`acme` 和 `northwind` 都在本地 Compose、dev overlay 和 prod overlay 里启动。两个租户的 `replicas` 都是 1，base 和 prod 用这个数，dev 没有单独的副本 patch。`:8080` 仍是原来的 demo 路由（`/api/work`、`/api/orders`、`/api/checkout`、`/api/error`），服务名改成了 `toc-api`。
 
 ToB 路由：
 
@@ -115,7 +115,7 @@ PYROSCOPE_HTTP_URL=http://pyroscope:4040
     tob-billing: 8087
 ```
 
-`compose: true` 才会出现在本地 Compose。`replicas` 是 base 和 prod 的副本数。`dev_replicas` 只改 dev overlay；省略它就沿用 `replicas`。`acme` 两边都是 1。`northwind` 的 `replicas` 是 0、`dev_replicas` 是 1，所以本地和 dev 会起来，prod 保持 0。
+`compose: true` 才会出现在本地 Compose。`replicas` 是 base 和 prod 的副本数。`dev_replicas` 只改 dev overlay；省略它就沿用 `replicas`。`acme` 和 `northwind` 的 `replicas` 都是 1，所以 base、dev 和 prod 都会跑这两个租户。
 
 2. 同时把 `examples/demo-app/src/demo_app/identity.py` 的 `TOB_TENANTS` 改成同一张表。两处不一致时 `make render-tenancy` 和 `config-check` 会失败。应用镜像不挂 yaml，所以进程内要有一份对照；Collector 仍是最后一道门。
 
@@ -168,7 +168,7 @@ prod-a 的 tob-billing (TENANT_ID=acme)
 
 同一租户跑在 `prod-a` 和 `prod-b` 时，后端 org 相同，`cluster` 标签不同。查询要同时写 org（选对数据源）和 `cluster`。把两个集群加在一起会掩盖只在一边出问题的发布。
 
-中心 URL 仍由 Terraform 的 `workload_clusters` map 写入 ConfigMap `observability-endpoints`。租户 map 不替代集群 map。增加第三个集群仍然是：map 里加一项，并在 `providers.tf` 加一个 alias。`for_each` 不能把不同的 provider alias 传给不同实例，agent 清单继续走每个实例自己的 kubeconfig 调 `kubectl`。这件事没有因为租户而改变。
+中心 URL 仍由 Terraform 的 `workload_clusters` map 写入 ConfigMap `observability-endpoints`。租户 map 不替代集群 map。增加第三个集群是在这个 map 里加一项。`for_each` 不能把不同的 provider alias 传给不同实例，所以平台栈不再为每个工作负载集群声明 alias。agent 清单和 ConfigMap `observability-cluster-binding` 都由该项的 kubeconfig 调 `kubectl` 写下。
 
 ## 某个租户没有数据
 

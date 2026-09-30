@@ -85,7 +85,7 @@ flowchart LR
 
 Compose 仍然是一台机器上的中心栈，`cluster` 固定为 `local`。Agent 配置里的环境变量和 Kubernetes 工作负载集群是同一条管道，只是 URL 指向 Docker 网络里的服务名。
 
-清单仍然是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 负责把同一批文件渲染成 ConfigMap。Terraform 有两个入口。`deploy/terraform/stacks/platform` 用 `for_each` 调用 `modules/cluster_agent`，用 provider alias 绑定每个集群的 kubeconfig，同时安装我们自己的中心栈。`deploy/terraform/stacks/attach-existing` 只在工作负载集群上装 agent，把数据送到已经存在的 Prometheus、Loki、Tempo、Pyroscope，并把该业务线的仪表盘和告警登记到已经存在的 Grafana；它不会创建这五个组件。增加第三个集群改的是变量和一行 alias，不是再复制一份 Deployment。Kustomize 渲染出的 kind/name 必须写在模块的 `managed_resources.yaml` 里，否则 `make config-check` 失败。步骤在 [deploy/terraform/README.md](deploy/terraform/README.md) 和 [docs/attach-existing.md](docs/attach-existing.md)。
+清单仍然是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 负责把同一批文件渲染成 ConfigMap。Terraform 有两个入口。`deploy/terraform/stacks/platform` 用 `for_each` 调用 `modules/cluster_agent`，每一项用自己的 kubeconfig 调 `kubectl`，同时安装我们自己的中心栈。中心栈的 Kubernetes provider alias 只有 `central`。`deploy/terraform/stacks/attach-existing` 只在工作负载集群上装 agent，把数据送到已经存在的 Prometheus、Loki、Tempo、Pyroscope，并把该业务线的仪表盘和告警登记到已经存在的 Grafana；它不会创建这五个组件。增加第三个集群是在 `workload_clusters` 里加一项，不是再复制一份 Deployment，也不再为它声明 provider alias。Kustomize 渲染出的 kind/name 必须写在模块的 `managed_resources.yaml` 里，否则 `make config-check` 失败。步骤在 [deploy/terraform/README.md](deploy/terraform/README.md) 和 [docs/attach-existing.md](docs/attach-existing.md)。
 
 五层监控和运维说明：
 
@@ -192,8 +192,9 @@ Compose 用 bind mount，Kustomize 用 `configMapGenerator` 指向这些文件�
 - `promtool`（随 Prometheus 3.15.0 发布）
 - `amtool`（随 Alertmanager 0.34.1 发布）
 - `kustomize` 5.x
-- `alloy` v1.20.1，可选但脚本会用它检查 River
-- `otelcol-contrib` 0.161.0，可选，用来 `validate`
+- `alloy` v1.20.1，`make config-check` 会用它检查 River，缺失则失败
+- `otelcol-contrib` 0.161.0，缺失则失败
+- `loki` 3.7.8，缺失则失败
 - Python 包 `pyyaml`，以及 demo 的 `requirements.txt`
 
 Kubernetes：
@@ -386,7 +387,7 @@ Demo 对照（`examples/demo-app`）：
 
 集群里的组件由 Terraform 安装。人不要再单独 `kubectl apply` 这套可观测栈。本机 Docker Compose 仍然是笔记本路径，Terraform 不驱动 Compose。
 
-清单在 `deploy/kubernetes`。`base` 引用 `config/` 生成 ConfigMap。`overlays/dev` 把几块盘降到 2Gi，环境标成 `dev`，并把 `northwind` 的两个 Deployment 设为 1。`overlays/prod` 加大请求/限制和磁盘，并把 demo 的环境标成 `prod`；`northwind` 在 prod 仍是 0。中心存储保持单副本。工作负载集群用 `deploy/kubernetes/agent`，包含 Alloy（DaemonSet）、两个副本的 Collector、node-exporter、kube-state-metrics 和 NetworkPolicy。
+清单在 `deploy/kubernetes`。`base` 引用 `config/` 生成 ConfigMap。`overlays/dev` 把几块盘降到 2Gi，环境标成 `dev`。`overlays/prod` 加大请求/限制和磁盘，并把 demo 的环境标成 `prod`。`acme` 和 `northwind` 的副本数都是目录里的 `replicas: 1`，所以 prod 也会跑 northwind。中心存储保持单副本。工作负载集群用 `deploy/kubernetes/agent`，包含 Alloy（DaemonSet）、两个副本的 Collector、node-exporter、kube-state-metrics 和 NetworkPolicy。
 
 配置在仓库的 `config/`，不在 `deploy/kubernetes/` 里面。Kustomize 默认禁止引用根目录之外的文件，所以 Terraform 内部的构建带 `--load-restrictor LoadRestrictionsNone`。`kubectl apply -k` 没有这个开关，不要拿它当安装入口。
 
@@ -488,14 +489,15 @@ kustomize build --load-restrictor LoadRestrictionsNone deploy/kubernetes/overlay
 路由（`config/alertmanager/alertmanager.yml`）：
 
 - 默认接收器 `blackhole`。
-- `severity=critical` → 接收器 `critical`（空接收器，告警留在 UI，不外发）。
-- `severity=warning` → 接收器 `warning`（同样不外发）。
-- 标签 `notify=webhook` → `webhook-example`，URL 是 `http://alerts.example.invalid/alerts`。`.invalid` 是保留域名，解析不到真实主机。
-- 同一告警名、服务、命名空间、job 上，critical 抑制 warning。
+- `severity=critical` → 接收器 `critical`。
+- `severity=warning` → 接收器 `warning`。
+- 提交进 git 的这两个接收器故意没有 webhook。告警留在 Alertmanager 和 Grafana 的界面里。
+- 分组键是 `cluster`、`business_line`、`tenant`、`alertname`。`group_wait` 30 秒，`repeat_interval` 4 小时。
+- 同一 `alertname`、`cluster`、`business_line`、`tenant`、`service_name` 上，critical 抑制 warning。
 
-要接到真实接收人：把 `webhook-example` 的 URL 改成你的系统，然后把 critical 路由的 `receiver` 改成 `webhook-example`。需要 token 时用 Kubernetes Secret 或 Compose secret 挂文件，不要提交。分组键是 `alertname`、`service_name`、`namespace`、`job`；`group_wait` 30 秒，`repeat_interval` 4 小时。
+要外发：设 `ALERT_WEBHOOK_URL`，或在 Terraform 里设 `TF_VAR_alert_webhook_url`。入口脚本给 `critical` 和 `warning` 加上这个 webhook，Grafana 的策略把这两个严重级别路由到同一个 URL。不要把 URL 或 token 写进 git。Kubernetes 上这份 URL 在 Secret `alert-webhook`，由 `kubectl-apply.sh` 在 apply 时创建。
 
-Grafana 自己也 provisioning 了一条「Collector export failures」规则和名为 `blackhole` 的 webhook 联系点，策略树根接收器就是它。Prometheus 规则仍然是主路径；这条 Grafana 规则用来证明告警资源也是代码。
+Grafana provisioning 了一条「Collector export failures」规则。联系点 `unconfigured` 没有接收器。Prometheus 规则仍然是主路径。
 
 ## 10. 仪表盘如何以代码管理
 
@@ -528,7 +530,7 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 - Loki `auth_enabled: true`，Tempo `multitenancy_enabled: true`，Pyroscope `multitenancy_enabled: true`。org id 是允许表，不是用户 id，也不是口令。网关去掉 `Authorization` 之后，`X-Scope-OrgID` 仍会转到后端。
 - Alloy 为了主机指标把宿主机根目录只读挂进容器，Kubernetes 里还以 root 跑 DaemonSet。这是节点代理的权限，不是应用的权限。应用 Deployment 关掉了 ServiceAccount token，根文件系统只读，丢掉全部 capabilities。
 - cAdvisor 走 API server 代理，使用集群 CA，而不是 `insecure_skip_verify` 直连 kubelet。
-- 示例 webhook 使用 `.invalid`，避免误打到真实地址。把它换成内网地址之前，先确认 NetworkPolicy 的出站是否仍然全开。
+- NetworkPolicy `observability-default` 只允许 `observability` 命名空间进入。别的命名空间要打 OTLP，命名空间和 Pod 都要带 `observability.platform/otlp-client=true`，并且只开放 `4317` 和 `4318`。出站不是全开：DNS、本命名空间里的后端，以及到集群外的 TCP `443`、`4317`、`4318`（外加 kube-apiserver 的 `6443`）。`9090`、`3100`、`3200`、`4040` 出了这个命名空间会被拒绝。attach-existing 的外部端点要用这几个端口。
 
 ## 12. 运维
 
@@ -573,14 +575,14 @@ make test
 
 - 核对 `deploy/images.env` 里的标签是否出现在 Compose、Kustomize 和 demo Dockerfile
 - 解析 YAML，并检查仪表盘 JSON 的 `uid`、`schemaVersion`、`panels` 和数据源 UID
-- `alloy fmt` / `alloy validate`（本机有二进制时）
-- `otelcol-contrib validate`（本机有二进制时）
+- `alloy fmt` / `alloy validate`（没有 `alloy` 则失败）
+- `otelcol-contrib validate`（没有该二进制则失败）
 - `promtool check rules` 和 `promtool test rules`
-- `amtool check-config`
-- `loki -verify-config`（本机有二进制时）
+- `amtool check-config`，包括 `ALERT_WEBHOOK_URL` 打开和关闭两种渲染
+- `loki -verify-config`（没有 `loki` 则失败）
 - `kustomize build --load-restrictor LoadRestrictionsNone` 渲染 dev、prod 与 agent
 - `terraform fmt -check`、覆盖检查（Kustomize 的 kind/name 必须出现在 Terraform 模块输入里）、`terraform init -backend=false`、`terraform validate`（`make terraform-check`）
-- `docker compose config`（有 Docker CLI 时；没有守护进程也可以只做配置渲染）
+- `docker compose config` 是单独的可选渲染。没有 Docker CLI 时脚本会写明 Compose 文件没有被校验，这不算通过
 - 编译并跑 demo 单测
 
 `promtool check config` 会去读配置里的绝对路径 `/etc/prometheus/rules`。宿主机上通常没有这个目录，所以脚本改用 `promtool check rules` 直接检查仓库里的规则文件，并用 `promtool test rules` 做单元测试。容器里的 Prometheus 启动时会按镜像内路径加载同一批文件。
@@ -600,7 +602,7 @@ make test
 多集群已经接在这个仓库里：工作负载集群通过 Terraform 把 agent 指到中心端点。工作负载 Collector 是两个无状态副本。中心存储仍是单进程本地盘。
 
 1. 中心集群继续用 `overlays/dev` 或 `overlays/prod`。中心节点上的 node-exporter 仍由 Prometheus 抓取 Service `node-exporter:9100`，这只适合中心侧单节点。工作负载集群由 `config/alloy/config.workload.alloy` 按节点抓取，job 仍是 `node`，instance 是节点名，不和 `alloy-unix` 混加。
-2. 写入鉴权已经在 nginx 网关上。还没做的是 mTLS、收紧 NetworkPolicy 的出站，以及把 Grafana 放到 Ingress 后面并打开 TLS。
+2. 写入鉴权已经在 nginx 网关上。工作负载 Alloy 的 OTLP 接收端也要求同一个 bearer。NetworkPolicy 的入站和出站已经收紧；Grafana 还没有放到 Ingress 后面，组件之间也没有 mTLS。
 3. 指标从单机 Prometheus 迁到 Mimir（或 Thanos）。规则文件可以原样挂到 Mimir ruler。在那之前不要给 Prometheus 再加一个写同一块盘的副本。
 4. 日志改 Loki scalable 模式加对象存储；链路改 Tempo 分布式；Profile 改 Pyroscope 的对象存储后端。用对应 Helm chart。共享对象存储是存储 HA 的下一步，不要复制本仓库的 Deployment 去凑副本。
 5. 采集层保持现在的分工：Alloy 做节点，Collector 做网关。应用继续只认 OTLP。

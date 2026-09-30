@@ -170,6 +170,44 @@ def missing_ids(rendered: set[tuple[str, str]], declared: set[tuple[str, str]]) 
     return sorted(f"{kind}/{name}" for kind, name in rendered - declared)
 
 
+def strip_hcl_comments(text: str) -> str:
+    """Remove HCL comments. A comment must not satisfy a coverage needle."""
+    out: list[str] = []
+    i = 0
+    n = len(text)
+    in_string = False
+    quote = ""
+    while i < n:
+        ch = text[i]
+        if in_string:
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(text[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                in_string = False
+            i += 1
+            continue
+        if ch in {'"', "'"}:
+            in_string = True
+            quote = ch
+            out.append(ch)
+            i += 1
+            continue
+        if ch == "#" or text.startswith("//", i):
+            while i < n and text[i] != "\n":
+                i += 1
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = n if end < 0 else end + 2
+            continue
+        out.append(ch)
+        i += 1
+    return "".join(out)
+
+
 def self_test() -> None:
     declared = {("Deployment", "prometheus")}
     rendered = {("Deployment", "prometheus"), ("Deployment", "forgotten")}
@@ -183,6 +221,12 @@ def self_test() -> None:
         raise SystemExit("coverage self-test failed: dashboard configmap hash")
     if normalize("ConfigMap", "observability-endpoints", {"observability-endpoints"}) != "observability-endpoints":
         raise SystemExit("coverage self-test failed: unhashed configmap")
+    commented = "# modules/cluster_agent\n"
+    if "modules/cluster_agent" in strip_hcl_comments(commented):
+        raise SystemExit("coverage self-test failed: comment needle counted as code")
+    coded = 'source = "modules/cluster_agent"\n'
+    if "modules/cluster_agent" not in strip_hcl_comments(coded):
+        raise SystemExit("coverage self-test failed: code needle was stripped")
     print("coverage self-test ok")
 
 
@@ -241,6 +285,7 @@ def check_wiring(errors: list[str]) -> None:
     stack_tf = (ROOT / "deploy/terraform/stacks/platform/main.tf").read_text()
     tenancy_tf = (ROOT / "deploy/terraform/stacks/platform/tenancy.tf").read_text()
     variables_tf = (ROOT / "deploy/terraform/stacks/platform/variables.tf").read_text()
+    providers_tf = (ROOT / "deploy/terraform/stacks/platform/providers.tf").read_text()
     script = (ROOT / "deploy/terraform/scripts/kubectl-apply.sh").read_text()
 
     if 'file("${path.module}/managed_resources.yaml")' not in central_tf:
@@ -273,6 +318,20 @@ def check_wiring(errors: list[str]) -> None:
         errors.append("tenancy.tf must skip demo-app when listing generated workload names")
     if "TF_VAR_ingest_token" not in variables_tf:
         errors.append("stack variables must require TF_VAR_ingest_token for the prod overlay")
+    if "TF_VAR_alert_webhook_url" not in variables_tf:
+        errors.append("stack variables must document TF_VAR_alert_webhook_url")
+    if "for_each = local.enabled_workload_clusters" not in stack_tf:
+        errors.append("workload agents are not for_each over workload_clusters")
+    if 'module "binding_prod_a"' in stack_tf or 'module "binding_prod_b"' in stack_tf:
+        errors.append("platform stack still hardcodes binding_prod_a or binding_prod_b")
+    if 'alias          = "prod_a"' in providers_tf or 'alias          = "prod_b"' in providers_tf:
+        errors.append("providers.tf still hardcodes a workload cluster alias")
+    if "observability-cluster-binding" not in script:
+        errors.append("kubectl-apply.sh must write ConfigMap observability-cluster-binding")
+    if "MANAGE_ALERT_WEBHOOK" not in central_tf or "var.alert_webhook_url" not in central_tf:
+        errors.append("central apply does not pass the alert webhook URL")
+    if "MANAGE_ALERT_WEBHOOK" not in script or "alert-webhook" not in script:
+        errors.append("kubectl-apply.sh must create Secret alert-webhook from ALERT_WEBHOOK_URL")
     if 'resource "terraform_data" "stack_apply"' not in central_tf:
         errors.append("central apply resource terraform_data.stack_apply is missing")
     if 'resource "terraform_data" "agent_apply"' not in agent_tf:
@@ -311,7 +370,7 @@ def check_attach(errors: list[str]) -> None:
     if not tf_files:
         errors.append("attach-existing stack has no Terraform files")
         return
-    tf = "\n".join(path.read_text() for path in tf_files)
+    tf = strip_hcl_comments("\n".join(path.read_text() for path in tf_files))
     example_path = stack / "terraform.tfvars.example"
     if not example_path.is_file():
         errors.append("attach-existing stack is missing terraform.tfvars.example")

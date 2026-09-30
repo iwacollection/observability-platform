@@ -40,6 +40,8 @@ tests:
               job: prometheus
               instance: prometheus:9090
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TargetDown"
+
               summary: "Scrape target is down"
               description: "prometheus/prometheus:9090 has been unreachable for more than 2 minutes."
       - eval_time: 10m
@@ -51,6 +53,8 @@ tests:
               layer: application
               service_name: demo-app
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-HighErrorRate"
+
               summary: "HTTP 5xx error ratio is above 5%"
               description: "demo-app error ratio is 50% over 5 minutes."
     promql_expr_test:
@@ -78,6 +82,8 @@ tests:
               job: node
               instance: node-exporter:9100
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-NodeDown"
+
               summary: "Node exporter target is down"
               description: "node-exporter:9100 has not been scraped for more than 2 minutes."
 
@@ -99,6 +105,8 @@ tests:
               job: redis
               instance: redis-exporter:9121
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-RedisDown"
+
               summary: "Redis exporter cannot reach Redis"
               description: "redis-exporter:9121 reports redis_up 0."
 
@@ -118,6 +126,8 @@ tests:
               layer: business
               service_name: demo-app
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-BusinessPaymentFailureRatio"
+
               summary: "Payment failure ratio is above 10%"
               description: "demo-app payment failures are above 10% of payments over 5 minutes."
     promql_expr_test:
@@ -162,6 +172,8 @@ tests:
               reason: stream_limit
               tenant: fake
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-LokiSamplesDiscarded"
+
               summary: "Loki is discarding log samples"
               description: "Loki discard reason stream_limit is non-zero."
 
@@ -217,6 +229,8 @@ tests:
               business_line: tob
               service_name: tob-billing
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TobInvoiceFailureRatio"
+
               summary: "ToB invoice failure ratio is above 10%"
               description: "prod-a tenant acme tob-billing invoice failures are above 10%."
       - eval_time: 10m
@@ -235,6 +249,8 @@ tests:
               service_name: tob-admin
               quota_class: standard
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TobApiQuotaHigh"
+
               summary: "ToB API quota utilization is above 90%"
               description: "local tenant acme class standard is above 90% of the quota."
       - eval_time: 15m
@@ -250,6 +266,8 @@ tests:
               service_name: tob-admin
               plan: enterprise
             exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TobSeatSaturation"
+
               summary: "ToB seat utilization is above 90%"
               description: "local tenant acme plan enterprise is above 90% of the seat limit."
     promql_expr_test:

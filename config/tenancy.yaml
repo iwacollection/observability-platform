@@ -61,11 +61,10 @@ business_lines:
           tob-billing: 8083
       - id: northwind
         org_id: tob-northwind
-        # Local Compose and the dev overlay both run this tenant.
-        # Prod stays at replicas 0 until someone raises it on purpose.
+        # Base, dev, and prod all run this tenant. dev_replicas is omitted,
+        # so the dev overlay keeps this replicas count.
         compose: true
-        replicas: 0
-        dev_replicas: 1
+        replicas: 1
         host_ports:
           tob-admin: 8084
           tob-billing: 8085

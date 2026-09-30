@@ -3,7 +3,7 @@ kind: Kustomization
 # Optional demo businesses for stacks/attach-existing when
 # install_demo_workloads is true. These are the same generated manifests the
 # central base installs. Replica counts come from config/tenancy.yaml
-# (northwind stays at replicas 0 until that catalog field changes).
+# (northwind replicas follow the catalog, currently 1).
 # This file is not part of deploy/kubernetes/agent, so the default attach
 # does not install them.
 namespace: observability

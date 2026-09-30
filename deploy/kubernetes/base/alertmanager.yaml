@@ -23,6 +23,10 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: alertmanager
+      annotations:
+        # kubectl-apply.sh replaces this when TF_VAR_alert_webhook_url is set
+        # so the pod rolls without putting the URL in the Deployment spec.
+        observability.platform/alert-paging: unconfigured
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -36,10 +40,14 @@ spec:
         - name: alertmanager
           image: prom/alertmanager:v0.34.1
           imagePullPolicy: IfNotPresent
-          args:
-            - --config.file=/etc/alertmanager/alertmanager.yml
-            - --storage.path=/alertmanager
-            - --web.listen-address=0.0.0.0:9093
+          command: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
+          env:
+            - name: ALERT_WEBHOOK_URL
+              valueFrom:
+                secretKeyRef:
+                  name: alert-webhook
+                  key: url
+                  optional: true
           ports:
             - name: http
               containerPort: 9093
@@ -66,6 +74,9 @@ spec:
             - name: config
               mountPath: /etc/alertmanager/alertmanager.yml
               subPath: alertmanager.yml
+            - name: config
+              mountPath: /etc/alertmanager/entrypoint.sh
+              subPath: entrypoint.sh
             - name: data
               mountPath: /alertmanager
             - name: tmp

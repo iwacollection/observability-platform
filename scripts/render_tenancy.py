@@ -459,6 +459,7 @@ groups:
           severity: warning
           layer: business
         annotations:
+          runbook_url: "docs/debugging.md#alert-TocPaymentFailureRatio"
           summary: "ToC payment failure ratio is above 10%"
           description: "{{{{ $labels.cluster }}}} {{{{ $labels.tenant }}}} {{{{ $labels.service_name }}}} payment failures are above 10%."
 
@@ -474,6 +475,7 @@ groups:
           severity: warning
           layer: business
         annotations:
+          runbook_url: "docs/debugging.md#alert-TobInvoiceFailureRatio"
           summary: "ToB invoice failure ratio is above 10%"
           description: "{{{{ $labels.cluster }}}} tenant {{{{ $labels.tenant }}}} {{{{ $labels.service_name }}}} invoice failures are above 10%."
 
@@ -484,6 +486,7 @@ groups:
           severity: warning
           layer: business
         annotations:
+          runbook_url: "docs/debugging.md#alert-TobSeatSaturation"
           summary: "ToB seat utilization is above 90%"
           description: "{{{{ $labels.cluster }}}} tenant {{{{ $labels.tenant }}}} plan {{{{ $labels.plan }}}} is above 90% of the seat limit."
 
@@ -494,6 +497,7 @@ groups:
           severity: warning
           layer: business
         annotations:
+          runbook_url: "docs/debugging.md#alert-TobApiQuotaHigh"
           summary: "ToB API quota utilization is above 90%"
           description: "{{{{ $labels.cluster }}}} tenant {{{{ $labels.tenant }}}} class {{{{ $labels.quota_class }}}} is above 90% of the quota."
 """

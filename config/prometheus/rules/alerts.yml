@@ -12,6 +12,7 @@ groups:
           severity: critical
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-TargetDown"
           summary: "Scrape target is down"
           description: "{{ $labels.job }}/{{ $labels.instance }} has been unreachable for more than 2 minutes."
 
@@ -39,6 +40,7 @@ groups:
           severity: critical
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-CollectorExportFailures"
           summary: "OpenTelemetry Collector is failing to export telemetry"
           description: "Exporter send failures have been non-zero for 5 minutes. Metrics, logs, or traces are being dropped after retry."
 
@@ -72,6 +74,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-CollectorRefusedData"
           summary: "OpenTelemetry Collector is refusing or dropping data"
           description: "The collector memory limiter or a receiver is dropping telemetry. Raise memory or reduce cardinality."
 
@@ -89,6 +92,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-CollectorExporterQueueNearFull"
           summary: "Collector exporter queue is over 80% full"
           description: "Exporter {{ $labels.exporter }} is retaining batches. Downstream remote write or OTLP is slower than ingest."
 
@@ -106,6 +110,7 @@ groups:
           severity: warning
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-DiskSpaceLow"
           summary: "Filesystem free space is below 15%"
           description: "{{ $labels.instance }} {{ $labels.mountpoint }} has less than 15% free space."
 
@@ -118,6 +123,7 @@ groups:
           severity: critical
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-NodeDown"
           summary: "Node exporter target is down"
           description: "{{ $labels.instance }} has not been scraped for more than 2 minutes."
 
@@ -129,6 +135,7 @@ groups:
           severity: warning
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-NodeCPUSaturation"
           summary: "Node CPU utilization is above 85%"
           description: "{{ $labels.instance }} CPU utilization is above 85% for 10 minutes."
 
@@ -146,6 +153,7 @@ groups:
           severity: warning
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-NodeMemorySaturation"
           summary: "Node memory utilization is above 90%"
           description: "{{ $labels.instance }} has less than 10% memory available."
 
@@ -160,6 +168,7 @@ groups:
           severity: warning
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-NodeLoadHigh"
           summary: "Node load average is above 2 per CPU"
           description: "{{ $labels.instance }} load1 is more than twice the CPU count."
 
@@ -176,6 +185,7 @@ groups:
           severity: warning
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-NodeDiskWillFill"
           summary: "Filesystem is predicted to fill within 4 hours"
           description: "{{ $labels.instance }} {{ $labels.mountpoint }} trends to zero free space within 4 hours."
 
@@ -187,6 +197,7 @@ groups:
           severity: warning
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-KubePodNotReady"
           summary: "Kubernetes pod is not ready"
           description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been unready for 10 minutes."
 
@@ -198,6 +209,7 @@ groups:
           severity: warning
           layer: infrastructure
         annotations:
+          runbook_url: "docs/debugging.md#alert-KubeDeploymentUnavailable"
           summary: "Kubernetes deployment has unavailable replicas"
           description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has unavailable replicas."
 
@@ -210,6 +222,7 @@ groups:
           severity: critical
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-RedisDown"
           summary: "Redis exporter cannot reach Redis"
           description: "{{ $labels.instance }} reports redis_up 0."
 
@@ -223,6 +236,7 @@ groups:
           severity: warning
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-RedisMemorySaturation"
           summary: "Redis memory is above 90% of maxmemory"
           description: "{{ $labels.instance }} is close to maxmemory. Evictions or rejected writes follow."
 
@@ -233,6 +247,7 @@ groups:
           severity: warning
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-RedisRejectedConnections"
           summary: "Redis is rejecting connections"
           description: "{{ $labels.instance }} rejected new connections over the last 5 minutes."
 
@@ -243,6 +258,7 @@ groups:
           severity: critical
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-PostgresDown"
           summary: "Postgres exporter cannot reach PostgreSQL"
           description: "{{ $labels.instance }} reports pg_up 0."
 
@@ -257,6 +273,7 @@ groups:
           severity: warning
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-PostgresConnectionSaturation"
           summary: "PostgreSQL connections are above 80% of max_connections"
           description: "Backends are above 80% of pg_settings_max_connections."
 
@@ -279,6 +296,7 @@ groups:
           severity: warning
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-PostgresRollbackRatio"
           summary: "PostgreSQL rollback ratio is above 10%"
           description: "Database {{ $labels.datname }} is rolling back more than 10% of transactions."
 
@@ -289,6 +307,7 @@ groups:
           severity: critical
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-NginxDown"
           summary: "Nginx exporter cannot read stub_status"
           description: "{{ $labels.instance }} reports nginx_up 0."
 
@@ -304,6 +323,7 @@ groups:
           severity: warning
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-NginxDroppedConnections"
           summary: "Nginx is accepting connections it does not handle"
           description: "accepted minus handled is positive. worker_connections is 256 in config/nginx/nginx.conf."
 
@@ -314,6 +334,7 @@ groups:
           severity: critical
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-KafkaNoBrokers"
           summary: "Kafka exporter sees no brokers"
           description: "{{ $labels.instance }} reports kafka_brokers below 1."
 
@@ -324,6 +345,7 @@ groups:
           severity: warning
           layer: middleware
         annotations:
+          runbook_url: "docs/debugging.md#alert-KafkaConsumerLagHigh"
           summary: "Kafka consumer group lag is above 10000"
           description: "Group {{ $labels.consumergroup }} topic {{ $labels.topic }} lag is above 10000."
 
@@ -349,6 +371,7 @@ groups:
           severity: warning
           layer: application
         annotations:
+          runbook_url: "docs/debugging.md#alert-HighErrorRate"
           summary: "HTTP 5xx error ratio is above 5%"
           description: "{{ $labels.service_name }} error ratio is {{ $value | humanizePercentage }} over 5 minutes."
 
@@ -365,6 +388,7 @@ groups:
           severity: warning
           layer: application
         annotations:
+          runbook_url: "docs/debugging.md#alert-HighLatency"
           summary: "HTTP p95 latency is above 500ms"
           description: "{{ $labels.service_name }} p95 latency is {{ $value | humanizeDuration }}."
 
@@ -375,6 +399,7 @@ groups:
           severity: warning
           layer: application
         annotations:
+          runbook_url: "docs/debugging.md#alert-AppInFlightSaturation"
           summary: "HTTP in-flight requests are above 100"
           description: "{{ $labels.service_name }} has more than 100 in-flight requests."
 
@@ -385,6 +410,7 @@ groups:
           severity: warning
           layer: application
         annotations:
+          runbook_url: "docs/debugging.md#alert-AppProcessCPUSaturation"
           summary: "Process CPU utilization is above 90%"
           description: "{{ $labels.service_name }} CPython runtime CPU is above 90%."
 
@@ -404,6 +430,7 @@ groups:
           severity: warning
           layer: business
         annotations:
+          runbook_url: "docs/debugging.md#alert-BusinessPaymentFailureRatio"
           summary: "Payment failure ratio is above 10%"
           description: "{{ $labels.service_name }} payment failures are above 10% of payments over 5 minutes."
 
@@ -417,6 +444,7 @@ groups:
           severity: warning
           layer: business
         annotations:
+          runbook_url: "docs/debugging.md#alert-BusinessPaymentFailureBurn"
           summary: "Payment failure ratio is burning on two windows"
           description: "{{ $labels.service_name }} failure ratio is above 20% for 5 minutes and 10% for 1 hour."
 
@@ -429,6 +457,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-PrometheusRuleEvalFailures"
           summary: "Prometheus rule evaluation is failing"
           description: "prometheus_rule_evaluation_failures_total increased over 5 minutes."
 
@@ -439,6 +468,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-PrometheusHighSeries"
           summary: "Prometheus head series is above 200000"
           description: "TSDB head series crossed 200000. Look for a new label before raising the limit."
 
@@ -449,6 +479,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-PrometheusSeriesChurn"
           summary: "Prometheus series churn is above 50 per second"
           description: "New series are being created faster than 50/s over 10 minutes."
 
@@ -459,6 +490,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-LokiSamplesDiscarded"
           summary: "Loki is discarding log samples"
           description: "Loki discard reason {{ $labels.reason }} is non-zero."
 
@@ -469,6 +501,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-LokiStreamChurn"
           summary: "Loki is creating streams faster than 50 per second"
           description: "New log streams exceed 50/s. A label value is probably unbounded."
 
@@ -479,6 +512,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-TempoSpansDiscarded"
           summary: "Tempo is discarding spans"
           description: "Tempo discard reason {{ $labels.reason }} is non-zero."
 
@@ -489,6 +523,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-PyroscopeSamplesDiscarded"
           summary: "Pyroscope is discarding profiles"
           description: "Pyroscope discard reason {{ $labels.reason }} is non-zero."
 
@@ -499,6 +534,7 @@ groups:
           severity: warning
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-AlloyRemoteWriteFailures"
           summary: "Alloy remote write is failing"
           description: "prometheus_remote_storage_samples_failed_total on Alloy increased over 5 minutes."
 
@@ -509,6 +545,7 @@ groups:
           severity: critical
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-GrafanaDown"
           summary: "Grafana scrape target is down"
           description: "{{ $labels.instance }} has been down for more than 2 minutes."
 
@@ -519,6 +556,7 @@ groups:
           severity: critical
           layer: meta
         annotations:
+          runbook_url: "docs/debugging.md#alert-AlertmanagerDown"
           summary: "Alertmanager scrape target is down"
           description: "{{ $labels.instance }} has been down for more than 2 minutes."
 
@@ -536,6 +574,7 @@ groups:
           slo: availability
           layer: application
         annotations:
+          runbook_url: "docs/debugging.md#alert-SLOAvailabilityFastBurn"
           summary: "Availability SLO fast burn"
           description: "{{ $labels.service_name }} is burning the 99.9% availability budget at more than 14.4x."
 
@@ -551,6 +590,7 @@ groups:
           slo: availability
           layer: application
         annotations:
+          runbook_url: "docs/debugging.md#alert-SLOAvailabilitySlowBurn"
           summary: "Availability SLO slow burn"
           description: "{{ $labels.service_name }} is burning the 99.9% availability budget at more than 6x."
 
@@ -566,5 +606,6 @@ groups:
           slo: latency
           layer: application
         annotations:
+          runbook_url: "docs/debugging.md#alert-SLOLatencyFastBurn"
           summary: "Latency SLO fast burn"
           description: "{{ $labels.service_name }} is missing the 300ms latency objective fast enough to page."

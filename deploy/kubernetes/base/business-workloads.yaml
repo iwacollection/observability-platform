@@ -345,7 +345,7 @@ metadata:
     observability.platform/tenant: northwind
     observability.platform/org-id: tob-northwind
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: tob-admin-northwind
@@ -456,7 +456,7 @@ metadata:
     observability.platform/tenant: northwind
     observability.platform/org-id: tob-northwind
 spec:
-  replicas: 0
+  replicas: 1
   selector:
     matchLabels:
       app.kubernetes.io/name: tob-billing-northwind

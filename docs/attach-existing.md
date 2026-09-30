@@ -63,7 +63,7 @@ ToC 的数据源 uid 是 `prometheus`、`loki`、`tempo`、`pyroscope`。ToB 仪
 | `false` | 只有 agent。业务进程由你自己部署，OTLP 打到本集群 Collector |
 | `true` | 再加上和中心 base 相同的生成清单：`deploy/kubernetes/base/demo-app.yaml`（`toc-api`）和 `deploy/kubernetes/base/business-workloads.yaml`（`toc-checkout`、`tob-admin` / `tob-billing` 的 `acme` 与 `northwind`）。kustomization 在 `deploy/kubernetes/agent-workloads`。默认的 `deploy/kubernetes/agent` 不含这些文件 |
 
-副本数是 `config/tenancy.yaml` 的 `replicas`，不是 `dev_replicas`。当前目录里 `acme` 是 1，`northwind` 是 0，所以打开这个开关后 northwind 的 Deployment 存在但没有 Pod。要让它跑起来，先改目录里的 `replicas`，`make render-tenancy`，再 apply。镜像是 `demo-app:local`，集群上要已经有这份镜像。这条路径不会创建 Prometheus 等五个后端。
+副本数是 `config/tenancy.yaml` 的 `replicas`，不是 `dev_replicas`。当前目录里 `acme` 和 `northwind` 都是 1，所以打开这个开关后这两个租户都会有 Pod。镜像是 `demo-app:local`，集群上要已经有这份镜像。这条路径不会创建 Prometheus 等五个后端。工作负载 NetworkPolicy 对集群外只放行 TCP 443、4317、4318（以及 kube-apiserver 的 6443）。远程写入和 OTLP 要用这些端口；9090、3100、4040 出了命名空间会被丢掉。
 
 ## 规则文件和 Grafana 告警
 
@@ -197,6 +197,6 @@ ToC 和 ToB 不要在同一个 Grafana 上用两份 `manage_grafana = true` 的�
 9. `manage_grafana = false` 不会创建数据源。到 `manage_grafana = true` 的那份状态里看 Grafana 资源。
 10. Collector 日志出现 TLS 错误：看 ConfigMap 的 `OTEL_EXPORTER_TLS_INSECURE`。默认应是 `false`。现有端点是明文时才把 `exporter_tls_insecure` 设为 `true`。私有 CA 看 Secret `otel-exporter-tls-ca` 是否存在，以及 `OTEL_EXPORTER_TLS_CA_FILE` 是否为 `/etc/otel-exporter-tls/ca.pem`。
 11. 应用如果把 OTLP 打到现有 Tempo，而不是本集群的 Collector，`cluster` 标签不会被 gateway 盖成 `cluster_name`。应打到 `otel-collector.observability.svc:4317`。
-12. `install_demo_workloads = false` 时命名空间里没有 `demo-app`。这是默认。设成 `true` 之后应能看到 `toc-checkout` 和 `tob-admin-acme`。`tob-admin-northwind` 的副本数是目录里的 `replicas`（当前是 0）。
+12. `install_demo_workloads = false` 时命名空间里没有 `demo-app`。这是默认。设成 `true` 之后应能看到 `toc-checkout`、`tob-admin-acme` 和 `tob-admin-northwind`。northwind 的副本数是目录里的 `replicas`（当前是 1）。
 
 Profile 火焰图如果查的是业务 org，OTLP profiles 不在那里，它们在 org `rejected`。SDK 路径用 `PYROSCOPE_HTTP_URL` 和 `tenant_id`。这是 Collector 0.161 的限制。

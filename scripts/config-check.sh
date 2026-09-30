@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
-# Static checks for the observability configs. Missing optional binaries are
-# reported; promtool, amtool, and a YAML/JSON parser are required.
+# Static checks for the observability configs. promtool, amtool, alloy,
+# otelcol-contrib, loki, kustomize, and terraform are required. A missing
+# binary is a failure. Docker Compose render is a separate optional step:
+# skipping it does not validate the compose files.
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
@@ -38,18 +40,18 @@ for needle in (
     if needle not in compose:
         errors.append(f"local compose missing {needle}")
 
-dev_k = (root / "deploy/kubernetes/overlays/dev/kustomization.yaml").read_text()
-for name in ("replicas-tob-admin-northwind.yaml", "replicas-tob-billing-northwind.yaml"):
-    if name not in dev_k:
-        errors.append(f"dev overlay missing {name}")
-    body = (root / "deploy/kubernetes/overlays/dev" / name).read_text()
-    if "replicas: 1" not in body:
-        errors.append(f"{name} is not replicas 1")
-
 base = (root / "deploy/kubernetes/base/business-workloads.yaml").read_text()
-# Prod inherits the base count. Northwind stays smaller than dev.
+# Prod inherits the base count. Northwind runs on base, dev, and prod.
 if "name: tob-admin-northwind" not in base or "name: tob-billing-northwind" not in base:
     errors.append("base workloads missing northwind")
+base_docs = list(yaml.safe_load_all(base))
+for name in ("tob-admin-northwind", "tob-billing-northwind"):
+    found = [
+        doc for doc in base_docs
+        if isinstance(doc, dict) and doc.get("kind") == "Deployment" and (doc.get("metadata") or {}).get("name") == name
+    ]
+    if len(found) != 1 or found[0]["spec"]["replicas"] != 1:
+        errors.append(f"base {name} replicas are not 1")
 
 prod = "\n".join(path.read_text() for path in (root / "deploy/kubernetes/overlays/prod").glob("*.yaml"))
 if "dev-ingest-token" in prod:
@@ -306,7 +308,7 @@ if command -v alloy >/dev/null 2>&1; then
   NODE_NAME=validate-node alloy validate "$root/config/alloy/config.k8s.alloy" || die "alloy validate k8s"
   NODE_NAME=validate-node alloy validate "$root/config/alloy/config.workload.alloy" || die "alloy validate workload"
 else
-  warn "alloy binary not found; skipped river validation"
+  die "alloy binary not found"
 fi
 
 note "collector config"
@@ -315,7 +317,7 @@ if command -v otelcol-contrib >/dev/null 2>&1; then
   export INGEST_TOKEN=dev-ingest-token
   otelcol-contrib validate --config "$root/config/otel-collector/config.yaml" --feature-gates service.profilesSupport || die "otelcol validate"
 else
-  warn "otelcol-contrib not found; skipped collector validate"
+  die "otelcol-contrib not found"
 fi
 
 note "prometheus"
@@ -336,11 +338,114 @@ else
   die "amtool not found"
 fi
 
+note "alert routing"
+python3 - <<'PY'
+import os
+import pathlib
+import subprocess
+import sys
+
+import yaml
+
+root = pathlib.Path(".")
+errors = []
+am = (root / "config/alertmanager/alertmanager.yml").read_text()
+if "intentionally unconfigured" not in am:
+    errors.append("alertmanager.yml does not say paging is intentionally unconfigured")
+if "alerts.example.invalid" in am or "\n    webhook_configs:" in "\n" + am:
+    errors.append("committed alertmanager.yml still has a webhook")
+for key in ("cluster", "business_line", "tenant", "alertname"):
+    if key not in am.split("group_by:", 1)[1].split("group_wait", 1)[0]:
+        errors.append(f"alertmanager group_by missing {key}")
+contacts = (root / "config/grafana/provisioning/alerting/contact-points.yaml").read_text()
+policies = (root / "config/grafana/provisioning/alerting/policies.yaml").read_text()
+if "intentionally unconfigured" not in contacts or "alerts.example.invalid" in contacts:
+    errors.append("grafana contact point is not the unconfigured receiver")
+if "receivers: []" not in contacts:
+    errors.append("grafana contact point still has a delivery receiver")
+for key in ("cluster", "business_line", "tenant", "alertname"):
+    if f"- {key}" not in policies:
+        errors.append(f"grafana policy group_by missing {key}")
+debug = (root / "docs/debugging.md").read_text()
+for rules_path in (
+    root / "config/prometheus/rules/alerts.yml",
+    root / "config/prometheus/rules/tenancy.yml",
+):
+    document = yaml.safe_load(rules_path.read_text())
+    for group in document["groups"]:
+        for rule in group["rules"]:
+            if "alert" not in rule:
+                continue
+            name = rule["alert"]
+            url = (rule.get("annotations") or {}).get("runbook_url")
+            want = f"docs/debugging.md#alert-{name}"
+            if url != want:
+                errors.append(f"{name} runbook_url is {url!r}, want {want}")
+            if f'id="alert-{name}"' not in debug:
+                errors.append(f"docs/debugging.md missing anchor alert-{name}")
+env = dict(os.environ)
+env.update({
+    "ALERT_RENDER_ONLY": "1",
+    "ALERTMANAGER_CONFIG_SRC": str(root / "config/alertmanager/alertmanager.yml"),
+    "ALERTMANAGER_CONFIG_DST": "/tmp/alertmanager-paging.yml",
+    "ALERT_WEBHOOK_URL": "http://alerts.example.invalid/hook",
+})
+rendered = subprocess.check_output(["sh", str(root / "config/alertmanager/entrypoint.sh")], env=env, text=True)
+if "http://alerts.example.invalid/hook" not in rendered:
+    errors.append("alertmanager entrypoint did not attach the webhook")
+if rendered.count("webhook_configs:") != 2:
+    errors.append("alertmanager entrypoint did not attach critical and warning webhooks")
+env["ALERT_WEBHOOK_URL"] = ""
+env["ALERTMANAGER_CONFIG_DST"] = "/tmp/alertmanager-quiet.yml"
+quiet = subprocess.check_output(["sh", str(root / "config/alertmanager/entrypoint.sh")], env=env, text=True)
+if "\n    webhook_configs:" in "\n" + quiet or "alerts.example.invalid" in quiet:
+    errors.append("empty ALERT_WEBHOOK_URL still renders a webhook")
+env.update({
+    "GRAFANA_ALERTING_SRC": str(root / "config/grafana/provisioning/alerting"),
+    "GRAFANA_ALERTING_DST": "/tmp/grafana-alerting-on",
+    "ALERT_WEBHOOK_URL": "http://alerts.example.invalid/hook",
+})
+graf = subprocess.check_output(["sh", str(root / "config/grafana/provisioning/alerting/render-alerting.sh")], env=env, text=True)
+if "http://alerts.example.invalid/hook" not in graf or '["severity", "=", "critical"]' not in graf:
+    errors.append("grafana renderer did not route critical to the webhook")
+for key in ("cluster", "business_line", "tenant", "alertname"):
+    if f"- {key}" not in graf:
+        errors.append(f"rendered grafana policy missing {key}")
+env["ALERT_WEBHOOK_URL"] = ""
+env["GRAFANA_ALERTING_DST"] = "/tmp/grafana-alerting-off"
+off = subprocess.check_output(["sh", str(root / "config/grafana/provisioning/alerting/render-alerting.sh")], env=env, text=True)
+if "alerts.example.invalid" in off or "alert-webhook" in off:
+    errors.append("empty ALERT_WEBHOOK_URL still renders a grafana webhook")
+alloy = (root / "config/alloy/config.workload.alloy").read_text()
+if "otelcol.auth.bearer" not in alloy or "otelcol.auth.bearer.ingest.handler" not in alloy:
+    errors.append("workload alloy OTLP receiver has no bearer authenticator")
+policy = (root / "deploy/kubernetes/base/networkpolicy.yaml").read_text()
+if "egress:\n    - {}" in policy or "\n    - {}\n" in policy:
+    errors.append("networkpolicy still has an open egress rule")
+if "port: 3000" in policy or "port: 8080" in policy:
+    errors.append("networkpolicy still publishes Grafana or demo ports")
+for port in ("443", "4317", "4318"):
+    if f"port: {port}" not in policy:
+        errors.append(f"networkpolicy missing egress/ingress port {port}")
+if "observability.platform/otlp-client" not in policy:
+    errors.append("networkpolicy has no labeled OTLP source")
+if "kubernetes.io/metadata.name: observability" not in policy:
+    errors.append("networkpolicy does not limit ingress to the observability namespace")
+providers = (root / "deploy/terraform/stacks/platform/providers.tf").read_text()
+if 'alias          = "prod_a"' in providers or "binding_prod_a" in (root / "deploy/terraform/stacks/platform/main.tf").read_text():
+    errors.append("adding a cluster still requires a hardcoded provider alias")
+if errors:
+    print("\n".join(errors))
+    sys.exit(1)
+print("alert routing, alloy auth, and networkpolicy checks ok")
+PY
+amtool check-config /tmp/alertmanager-paging.yml || die "amtool check-config paging render"
+
 note "loki"
 if command -v loki >/dev/null 2>&1; then
   loki -config.file="$root/config/loki/loki.yaml" -verify-config || die "loki verify-config"
 else
-  warn "loki binary not found; skipped"
+  die "loki binary not found"
 fi
 
 note "kustomize"
@@ -403,8 +508,8 @@ prod_text = Path("/tmp/observability-prod.yaml").read_text()
 if "dev-ingest-token" in prod_text:
     raise SystemExit("prod render contains the dev ingest placeholder")
 for name in ("tob-admin-northwind", "tob-billing-northwind"):
-    if deployment_replicas(prod_text, name) != 0:
-        raise SystemExit(f"prod {name} replicas are not 0")
+    if deployment_replicas(prod_text, name) != 1:
+        raise SystemExit(f"prod {name} replicas are not 1")
 for name in ("prometheus", "loki", "tempo", "pyroscope"):
     if deployment_replicas(text, name) != 1 or deployment_replicas(prod_text, name) != 1:
         raise SystemExit(f"{name} is not a single replica")
@@ -462,13 +567,13 @@ else
   die "kustomize not found"
 fi
 
-note "compose config"
+note "compose config (optional render; a skip does not validate compose)"
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
   docker compose -f "$root/deploy/docker-compose/docker-compose.yml" -f "$root/deploy/docker-compose/businesses.yml" config >/tmp/observability-compose.yml || die "docker compose config"
 elif command -v docker-compose >/dev/null 2>&1; then
   docker-compose -f "$root/deploy/docker-compose/docker-compose.yml" -f "$root/deploy/docker-compose/businesses.yml" config >/tmp/observability-compose.yml || die "docker-compose config"
 else
-  warn "docker compose CLI not found; skipped compose config"
+  echo "SKIP compose render: docker CLI is not installed. Compose files were not validated."
 fi
 
 note "demo unit tests"

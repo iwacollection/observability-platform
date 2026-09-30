@@ -33,7 +33,7 @@ Kubernetes 上同名 Service 在命名空间 `observability`：`kubectl -n obser
 make config-check
 ```
 
-脚本 `scripts/config-check.sh` 会核对 `deploy/images.env`、解析 YAML/JSON、用本机的 `alloy` 检查 River、用 `otelcol-contrib validate --feature-gates service.profilesSupport` 检查 Collector、`promtool check rules` 和 `promtool test rules config/prometheus/tests/alerts_test.yml`、`amtool check-config`、有二进制时 `loki -verify-config`、`kustomize build --load-restrictor LoadRestrictionsNone`、Terraform 覆盖检查、有 Docker CLI 时 `docker compose config`，并跑 demo 单测。
+脚本 `scripts/config-check.sh` 会核对 `deploy/images.env`、解析 YAML/JSON、用 `alloy` 检查 River、用 `otelcol-contrib validate --feature-gates service.profilesSupport` 检查 Collector、`promtool check rules` 和 `promtool test rules config/prometheus/tests/alerts_test.yml`、`amtool check-config`、`loki -verify-config`、`kustomize build --load-restrictor LoadRestrictionsNone`、Terraform 覆盖检查，并跑 demo 单测。`alloy`、`otelcol-contrib`、`loki` 缺失是失败，不是跳过。`docker compose config` 是单独的可选渲染：没有 Docker CLI 时会写明 Compose 文件没有被校验。
 
 单独重跑规则测试：
 
@@ -134,7 +134,7 @@ sum by (reason) (rate(tempo_discarded_spans_total[5m]))
 3. 告警有 `for`。`NodeDown` 是 2 分钟，`HighErrorRate` 是 5 分钟，`NodeDiskWillFill` 是 30 分钟且 `predict_linear` 需要约 6 小时样本。刚启动看不到是时间不够，不是规则没装。
 4. `HighErrorRate` 还要求非 `/healthz` 的 QPS > 0.1。只打一两下 `/api/error` 不会响。
 5. `BusinessPaymentFailureRatio` 要求失败占比 > 10% 且支付速率 > 0.05/s。`make load` 里失败结账大约是一半，速率要够。
-6. Alertmanager http://127.0.0.1:9093 能看到告警。默认接收器 `blackhole`、`critical`、`warning` 都不外发。`notify=webhook` 才走 `http://alerts.example.invalid/alerts`。没收到消息不代表没触发。
+6. Alertmanager http://127.0.0.1:9093 能看到告警。没设置 `ALERT_WEBHOOK_URL`（Terraform 是 `TF_VAR_alert_webhook_url`）时，`critical` 和 `warning` 接收器是故意留空的，告警留在界面里，不会外发。设置之后，这两个严重级别发到该 webhook，分组键是 `cluster`、`business_line`、`tenant`、`alertname`。没收到消息不代表没触发。每条告警的 `runbook_url` 指向本文「告警手册」里的锚点。
 7. 用 promtool 对一条规则做单元测试，输入序列写在 `config/prometheus/tests/alerts_test.yml`。每层至少有一条：`NodeDown`、`RedisDown`、`HighErrorRate`、`BusinessPaymentFailureRatio`、`LokiSamplesDiscarded`。
 
 ## Collector 导出失败
@@ -153,3 +153,143 @@ curl -sS http://127.0.0.1:12345/metrics | grep prometheus_remote_storage_samples
 ```
 
 告警 `AlloyRemoteWriteFailures` 要求 `job="alloy"`，避免和别的进程的同名指标混在一起。
+
+## 告警手册
+
+每条 Prometheus 告警的 `runbook_url` 是 `docs/debugging.md#alert-<AlertName>`。下面的锚点都在这个文件里。告警留在 Alertmanager 和 Grafana 的界面里。只有设置了 `ALERT_WEBHOOK_URL`（Terraform 里是 `TF_VAR_alert_webhook_url`）时，`critical` 和 `warning` 才会发到那个 webhook。
+
+<a id="alert-TargetDown"></a>
+**TargetDown.** Scrape target is down
+
+<a id="alert-CollectorExportFailures"></a>
+**CollectorExportFailures.** OpenTelemetry Collector is failing to export telemetry
+
+<a id="alert-CollectorRefusedData"></a>
+**CollectorRefusedData.** OpenTelemetry Collector is refusing or dropping data
+
+<a id="alert-CollectorExporterQueueNearFull"></a>
+**CollectorExporterQueueNearFull.** Collector exporter queue is over 80% full
+
+<a id="alert-DiskSpaceLow"></a>
+**DiskSpaceLow.** Filesystem free space is below 15%
+
+<a id="alert-NodeDown"></a>
+**NodeDown.** Node exporter target is down
+
+<a id="alert-NodeCPUSaturation"></a>
+**NodeCPUSaturation.** Node CPU utilization is above 85%
+
+<a id="alert-NodeMemorySaturation"></a>
+**NodeMemorySaturation.** Node memory utilization is above 90%
+
+<a id="alert-NodeLoadHigh"></a>
+**NodeLoadHigh.** Node load average is above 2 per CPU
+
+<a id="alert-NodeDiskWillFill"></a>
+**NodeDiskWillFill.** Filesystem is predicted to fill within 4 hours
+
+<a id="alert-KubePodNotReady"></a>
+**KubePodNotReady.** Kubernetes pod is not ready
+
+<a id="alert-KubeDeploymentUnavailable"></a>
+**KubeDeploymentUnavailable.** Kubernetes deployment has unavailable replicas
+
+<a id="alert-RedisDown"></a>
+**RedisDown.** Redis exporter cannot reach Redis
+
+<a id="alert-RedisMemorySaturation"></a>
+**RedisMemorySaturation.** Redis memory is above 90% of maxmemory
+
+<a id="alert-RedisRejectedConnections"></a>
+**RedisRejectedConnections.** Redis is rejecting connections
+
+<a id="alert-PostgresDown"></a>
+**PostgresDown.** Postgres exporter cannot reach PostgreSQL
+
+<a id="alert-PostgresConnectionSaturation"></a>
+**PostgresConnectionSaturation.** PostgreSQL connections are above 80% of max_connections
+
+<a id="alert-PostgresRollbackRatio"></a>
+**PostgresRollbackRatio.** PostgreSQL rollback ratio is above 10%
+
+<a id="alert-NginxDown"></a>
+**NginxDown.** Nginx exporter cannot read stub_status
+
+<a id="alert-NginxDroppedConnections"></a>
+**NginxDroppedConnections.** Nginx is accepting connections it does not handle
+
+<a id="alert-KafkaNoBrokers"></a>
+**KafkaNoBrokers.** Kafka exporter sees no brokers
+
+<a id="alert-KafkaConsumerLagHigh"></a>
+**KafkaConsumerLagHigh.** Kafka consumer group lag is above 10000
+
+<a id="alert-HighErrorRate"></a>
+**HighErrorRate.** HTTP 5xx error ratio is above 5%
+
+<a id="alert-HighLatency"></a>
+**HighLatency.** HTTP p95 latency is above 500ms
+
+<a id="alert-AppInFlightSaturation"></a>
+**AppInFlightSaturation.** HTTP in-flight requests are above 100
+
+<a id="alert-AppProcessCPUSaturation"></a>
+**AppProcessCPUSaturation.** Process CPU utilization is above 90%
+
+<a id="alert-BusinessPaymentFailureRatio"></a>
+**BusinessPaymentFailureRatio.** Payment failure ratio is above 10%
+
+<a id="alert-BusinessPaymentFailureBurn"></a>
+**BusinessPaymentFailureBurn.** Payment failure ratio is burning on two windows
+
+<a id="alert-PrometheusRuleEvalFailures"></a>
+**PrometheusRuleEvalFailures.** Prometheus rule evaluation is failing
+
+<a id="alert-PrometheusHighSeries"></a>
+**PrometheusHighSeries.** Prometheus head series is above 200000
+
+<a id="alert-PrometheusSeriesChurn"></a>
+**PrometheusSeriesChurn.** Prometheus series churn is above 50 per second
+
+<a id="alert-LokiSamplesDiscarded"></a>
+**LokiSamplesDiscarded.** Loki is discarding log samples
+
+<a id="alert-LokiStreamChurn"></a>
+**LokiStreamChurn.** Loki is creating streams faster than 50 per second
+
+<a id="alert-TempoSpansDiscarded"></a>
+**TempoSpansDiscarded.** Tempo is discarding spans
+
+<a id="alert-PyroscopeSamplesDiscarded"></a>
+**PyroscopeSamplesDiscarded.** Pyroscope is discarding profiles
+
+<a id="alert-AlloyRemoteWriteFailures"></a>
+**AlloyRemoteWriteFailures.** Alloy remote write is failing
+
+<a id="alert-GrafanaDown"></a>
+**GrafanaDown.** Grafana scrape target is down
+
+<a id="alert-AlertmanagerDown"></a>
+**AlertmanagerDown.** Alertmanager scrape target is down
+
+<a id="alert-SLOAvailabilityFastBurn"></a>
+**SLOAvailabilityFastBurn.** Availability SLO fast burn
+
+<a id="alert-SLOAvailabilitySlowBurn"></a>
+**SLOAvailabilitySlowBurn.** Availability SLO slow burn
+
+<a id="alert-SLOLatencyFastBurn"></a>
+**SLOLatencyFastBurn.** Latency SLO fast burn
+
+<a id="alert-TocPaymentFailureRatio"></a>
+**TocPaymentFailureRatio.** ToC payment failure ratio is above 10%
+
+<a id="alert-TobInvoiceFailureRatio"></a>
+**TobInvoiceFailureRatio.** ToB invoice failure ratio is above 10%
+
+<a id="alert-TobSeatSaturation"></a>
+**TobSeatSaturation.** ToB seat utilization is above 90%
+
+<a id="alert-TobApiQuotaHigh"></a>
+**TobApiQuotaHigh.** ToB API quota utilization is above 90%
+

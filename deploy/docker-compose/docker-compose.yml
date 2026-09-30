@@ -102,12 +102,13 @@ services:
 
   alertmanager:
     image: prom/alertmanager:v0.34.1
-    command:
-      - --config.file=/etc/alertmanager/alertmanager.yml
-      - --storage.path=/alertmanager
-      - --web.listen-address=0.0.0.0:9093
+    entrypoint: ["/bin/sh", "/etc/alertmanager/entrypoint.sh"]
+    environment:
+      # Unset keeps critical and warning in the UI. Same switch as TF_VAR_alert_webhook_url.
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
     volumes:
       - ../../config/alertmanager/alertmanager.yml:/etc/alertmanager/alertmanager.yml:ro
+      - ../../config/alertmanager/entrypoint.sh:/etc/alertmanager/entrypoint.sh:ro
       - alertmanager-data:/alertmanager
     ports:
       - "127.0.0.1:9093:9093"
@@ -231,10 +232,14 @@ services:
       GF_FEATURE_TOGGLES_ENABLE: traceToProfiles tracesEmbeddedFlameGraph
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       INGEST_AUTHORIZATION: ${INGEST_AUTHORIZATION:-Bearer dev-ingest-token}
+      ALERT_WEBHOOK_URL: ${ALERT_WEBHOOK_URL:-}
+    entrypoint: ["/bin/sh", "/etc/grafana/alerting-src/render-alerting.sh"]
+    tmpfs:
+      - /etc/grafana/provisioning/alerting
     volumes:
       - ../../config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ../../config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
-      - ../../config/grafana/provisioning/alerting:/etc/grafana/provisioning/alerting:ro
+      - ../../config/grafana/provisioning/alerting:/etc/grafana/alerting-src:ro
       - ../../config/grafana/dashboards:/etc/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     ports:

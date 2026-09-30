@@ -1,0 +1,14 @@
+name: config-check
+
+on:
+  pull_request:
+
+jobs:
+  config-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install check tools
+        run: bash scripts/install-check-tools.sh
+      - name: make config-check
+        run: make config-check

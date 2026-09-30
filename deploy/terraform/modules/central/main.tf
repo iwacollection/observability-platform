@@ -62,6 +62,7 @@ resource "terraform_data" "stack_apply" {
     generated_workloads = join(",", var.generated_workload_names)
     ingest_secret_mode  = local.ingest_secret_mode
     managed_ids         = join(",", local.managed_ids)
+    alert_webhook_sha   = nonsensitive(sha256(coalesce(var.alert_webhook_url, "")))
   }
 
   input = {
@@ -71,17 +72,20 @@ resource "terraform_data" "stack_apply" {
     overlay            = local.overlay
     ingest_secret_mode = local.ingest_secret_mode
     # Prod token stays on kubernetes_secret_v1. Do not put it in this input.
-    ingest_token = local.ingest_secret_mode == "script" ? coalesce(var.ingest_token, "") : ""
+    ingest_token      = local.ingest_secret_mode == "script" ? coalesce(var.ingest_token, "") : ""
+    alert_webhook_url = coalesce(var.alert_webhook_url, "")
   }
 
   provisioner "local-exec" {
     command = "bash \"${self.input.repo_root}/deploy/terraform/scripts/kubectl-apply.sh\" apply"
     environment = {
-      KUBECONFIG         = self.input.kubeconfig
-      KUBE_CONTEXT       = self.input.kube_context
-      KUSTOMIZE_PATH     = self.input.overlay
-      INGEST_TOKEN       = self.input.ingest_token
-      INGEST_SECRET_MODE = self.input.ingest_secret_mode
+      KUBECONFIG           = self.input.kubeconfig
+      KUBE_CONTEXT         = self.input.kube_context
+      KUSTOMIZE_PATH       = self.input.overlay
+      INGEST_TOKEN         = self.input.ingest_token
+      INGEST_SECRET_MODE   = self.input.ingest_secret_mode
+      MANAGE_ALERT_WEBHOOK = "true"
+      ALERT_WEBHOOK_URL    = self.input.alert_webhook_url
     }
   }
 

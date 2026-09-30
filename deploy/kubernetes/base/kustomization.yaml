@@ -39,6 +39,7 @@ configMapGenerator:
   - name: alertmanager-config
     files:
       - alertmanager.yml=../../../config/alertmanager/alertmanager.yml
+      - entrypoint.sh=../../../config/alertmanager/entrypoint.sh
   - name: loki-config
     files:
       - loki.yaml=../../../config/loki/loki.yaml
@@ -75,6 +76,7 @@ configMapGenerator:
       - contact-points.yaml=../../../config/grafana/provisioning/alerting/contact-points.yaml
       - policies.yaml=../../../config/grafana/provisioning/alerting/policies.yaml
       - rules.yaml=../../../config/grafana/provisioning/alerting/rules.yaml
+      - render-alerting.sh=../../../config/grafana/provisioning/alerting/render-alerting.sh
   - name: observability-tenancy
     files:
       - tenancy.yaml=../../../config/tenancy.yaml

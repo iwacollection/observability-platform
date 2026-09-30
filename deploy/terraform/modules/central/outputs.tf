@@ -23,6 +23,11 @@ output "ingest_secret_managed" {
   description = "True when the Kubernetes provider creates Secret ingest-auth. Dev uses the overlay placeholder instead."
 }
 
+output "alert_paging_enabled" {
+  value       = var.alert_webhook_url != null && var.alert_webhook_url != ""
+  description = "True when TF_VAR_alert_webhook_url is set. The URL itself is not an output."
+}
+
 output "managed_component_names" {
   value       = sort(tolist(local.required_components))
   description = "Platform components this module declares. The coverage check compares them to kustomize output."

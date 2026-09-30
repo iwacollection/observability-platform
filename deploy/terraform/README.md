@@ -108,6 +108,8 @@ cp terraform.tfvars.example terraform.tfvars
 ```bash
 export TF_VAR_grafana_admin_password='用你自己的密码替换'
 export TF_VAR_ingest_token='用你自己的写入口令替换'
+# 可选。不设置时告警留在界面里。
+# export TF_VAR_alert_webhook_url='https://paging.example.internal/hooks/observability'
 ```
 
 `TF_VAR_ingest_token` 是 sensitive。
@@ -123,7 +125,7 @@ export TF_VAR_ingest_token='用你自己的写入口令替换'
 
 Grafana 密码同理：没设置时不会创建 Secret `grafana-admin`，Pod 停在 `CreateContainerConfigError`。补上变量后再 apply。
 
-`terraform plan` 和 `terraform apply` 都会加载三个 provider alias，所以 `central`、`prod-a`、`prod-b` 的 kubeconfig 文件必须存在，即使这次只改其中一个集群。没有这些文件时不要 plan。没有集群时的检查是：
+`terraform plan` 和 `terraform apply` 会加载中心集群的 provider alias `kubernetes.central`，所以中心 kubeconfig 必须存在。工作负载集群不声明 provider alias。`module.workload` 的 `for_each` 用每一项自己的 kubeconfig 调 `kubectl`。没有集群时的检查是：
 
 ```bash
 make terraform-check
@@ -152,10 +154,10 @@ terraform apply -target=module.central
 ### 应用一个工作负载集群
 
 ```bash
-terraform apply -target='module.workload["prod-a"]' -target=module.binding_prod_a
+terraform apply -target='module.workload["prod-a"]'
 ```
 
-`prod-b` 把名字换成 `prod-b` 和 `module.binding_prod_b`。
+`prod-b` 把名字换成 `prod-b`。同一次 apply 会写下 ConfigMap `observability-cluster-binding`。
 
 工作负载集群只装命名空间、Alloy、两个副本的 Collector、node-exporter、kube-state-metrics、NetworkPolicy、ConfigMap `observability-endpoints`，以及 Secret `ingest-auth`（变量非空时）。不装 Prometheus、Loki、Tempo、Pyroscope、Grafana。
 
@@ -173,9 +175,7 @@ terraform apply
 terraform apply
 ```
 
-`prod-a` 的 `enabled = false` 会删掉该 kubeconfig 上的 agent 清单、`observability-endpoints` 和 `ingest-auth`，并删掉 `observability-cluster-binding`。`prod-b` 和中心栈不动。
-
-不要删掉键。`kubernetes.prod_a` 的 `config_path` 在 plan 时就会读它，键没了，销毁进行不下去。
+`prod-a` 的 `enabled = false` 会把这项移出 `for_each`，删掉该 kubeconfig 上的 agent 清单、`observability-endpoints`、`ingest-auth` 和 `observability-cluster-binding`。`prod-b` 和中心栈不动。从 map 里删掉这一项也是同一次销毁。不再需要为了 provider alias 把键留着。
 
 销毁整个中心栈是 `terraform destroy`。那会删掉中心 overlay 里的资源。工作负载集群仍会尝试写入，直到它们自己被禁用。
 
@@ -200,7 +200,7 @@ terraform apply
 | `modules/central/managed_resources.yaml` | 中心栈对象清单。覆盖检查的输入 |
 | `modules/cluster_agent` | 对 `deploy/kubernetes/agent` 做 apply，并写入 `observability-endpoints` 和 `ingest-auth` |
 | `modules/cluster_agent/managed_resources.yaml` | 工作负载集群对象清单 |
-| `modules/cluster_binding` | 用 Kubernetes provider 写入 ConfigMap `observability-cluster-binding` |
+| `modules/cluster_binding` | ConfigMap `observability-cluster-binding` 的名字。实际由 `kubectl-apply.sh` 按 map 项写入 |
 | `stacks/platform` | 一个中心栈，加上 `workload_clusters` 的 `for_each`。我们拥有后端 |
 | `stacks/platform/tenancy.tf` | 读取 `config/tenancy.yaml` |
 | `stacks/attach-existing` | 只装 agent，并把数据源、`toc-line` 或 `tob-line` 仪表盘、告警登记到已有 Grafana。不创建后端 |
@@ -219,19 +219,17 @@ Compose 用 bind mount 读取 `config/`。Kustomize 的 `configMapGenerator` 也
 
 ## Provider alias 和 for_each
 
-`stacks/platform/providers.tf` 声明三个 alias：
+`stacks/platform/providers.tf` 只声明中心 alias：
 
 | alias | kubeconfig |
 | --- | --- |
 | `kubernetes.central` | `var.central_kubeconfig` |
-| `kubernetes.prod_a` | `var.workload_clusters["prod-a"].kubeconfig` |
-| `kubernetes.prod_b` | `var.workload_clusters["prod-b"].kubeconfig` |
 
-`module "central"` 使用 `kubernetes.central`，用来创建 Grafana 和 prod ingest 的 Secret。`module "binding_prod_a"` 和 `binding_prod_b` 使用对应的工作负载 alias。
+`module "central"` 使用 `kubernetes.central`，用来创建 Grafana 和 prod ingest 的 Secret。
 
-`module "workload"` 使用 `for_each = local.enabled_workload_clusters`。Terraform 不能给 `for_each` 的每个实例传递不同的 provider alias，所以 agent 清单不走 Kubernetes provider，而由模块里的 `terraform_data` 按该集群的 kubeconfig 调用 `kubectl`。增加集群时，DaemonSet 和 Collector 不用复制。
+`module "workload"` 使用 `for_each = local.enabled_workload_clusters`。Terraform 不能给 `for_each` 的每个实例传递不同的 provider alias，所以这里不为工作负载集群声明 alias。agent 清单和 ConfigMap `observability-cluster-binding` 由模块里的 `terraform_data` 按该集群的 kubeconfig 调用 `kubectl`。增加集群时，DaemonSet 和 Collector 不用复制。
 
-示例要求 map 里始终有键 `prod-a` 和 `prod-b`。不想要其中一个时，把 `enabled` 设为 `false`，不要删掉键。
+示例 map 里有 `prod-a` 和 `prod-b`。不想要其中一个时，把 `enabled` 设为 `false`，或者从 map 里删掉这一项。
 
 ## 每个集群的 kubeconfig
 
@@ -255,10 +253,7 @@ workload_clusters = {
 假设新集群叫 `prod-c`。
 
 1. 在 `terraform.tfvars` 的 `workload_clusters` 增加 `prod-c`，字段和 `prod-a` 相同。`enabled` 默认 true。键必须是 DNS label，它会变成标签 `cluster="prod-c"`。
-2. 在 `stacks/platform/providers.tf` 增加 alias，kubeconfig 取自 `var.workload_clusters["prod-c"].kubeconfig`。
-3. 在 `stacks/platform/main.tf` 增加 `module "binding_prod_c"`，`providers` 指向新 alias，`cluster_name = "prod-c"`，`enabled = var.workload_clusters["prod-c"].enabled`，`depends_on = [module.workload]`。
-4. `module "workload"` 的 `for_each` 会包含 `prod-c`。不要复制 `deploy/kubernetes` 里的 YAML。
-5. 若希望缺键就失败，把 `prod-c` 加进 `variables.tf` 的 `contains(keys(...))` 列表。示例校验目前只强制 `prod-a` 和 `prod-b`。
+2. `module "workload"` 的 `for_each` 会包含 `prod-c`，并用该项的 kubeconfig 调 `kubectl`。不要在 `providers.tf` 里加 alias，不要复制 `deploy/kubernetes` 里的 YAML，也不要再写一个 `module "binding_prod_c"`。ConfigMap `observability-cluster-binding` 由同一次 apply 写下。
 
 ## 变量
 
@@ -271,6 +266,7 @@ workload_clusters = {
 | `grafana_admin_user` | `admin` | Secret 里的用户名 |
 | `grafana_admin_password` | `null` | sensitive。null 表示不创建 Secret |
 | `ingest_token` | `null` | sensitive。用 `TF_VAR_ingest_token` 传入 |
+| `alert_webhook_url` | `null` | sensitive。用 `TF_VAR_alert_webhook_url` 传入。空则告警留在界面里 |
 | `workload_collector_replicas` | `2` | 只改工作负载集群 Collector 的副本，范围 2 到 5 |
 
 工作负载 map 的每个对象：`enabled`、`kubeconfig`、可选 `context`、`prometheus_remote_write_url`、`loki_push_url`、`loki_otlp_endpoint`、`tempo_otlp_endpoint`（`host:4317`，不带 `http://`）、`pyroscope_otlp_endpoint`、`pyroscope_http_url`。

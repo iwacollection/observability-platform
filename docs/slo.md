@@ -37,9 +37,9 @@
 
 ## 和 Alertmanager 的关系
 
-`severity=critical` 进 `critical` 接收器，`warning` 进 `warning` 接收器。这两个接收器默认是空的，Alertmanager 会留下告警但不外发。要接到真实系统，把路由改到 `webhook-example`，或给带 `notify=webhook` 标签的告警走示例 webhook，再把 URL 换成你自己的地址。不要把 token 写进 git。
+`severity=critical` 进 `critical` 接收器，`warning` 进 `warning` 接收器。没设置 `ALERT_WEBHOOK_URL` 或 `TF_VAR_alert_webhook_url` 时，这两个接收器故意没有 webhook，告警留在界面里。设置之后，Alertmanager 和 Grafana 都把这两个严重级别发到该 URL。分组键是 `cluster`、`business_line`、`tenant`、`alertname`。不要把 URL 或 token 写进 git。
 
-同一 `alertname` + `service_name` + `namespace` + `job` 上，critical 会抑制 warning。
+同一 `alertname`、`cluster`、`business_line`、`tenant`、`service_name` 上，critical 会抑制 warning。
 
 ## 改一个新的 SLO
 

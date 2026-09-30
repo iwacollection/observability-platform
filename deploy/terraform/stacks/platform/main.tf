@@ -19,6 +19,7 @@ module "central" {
   grafana_admin_user       = var.grafana_admin_user
   grafana_admin_password   = var.grafana_admin_password
   ingest_token             = var.ingest_token
+  alert_webhook_url        = var.alert_webhook_url
   generated_workload_names = local.generated_workload_names
 }
 
@@ -40,30 +41,4 @@ module "workload" {
   require_ingest_token        = var.central_overlay == "prod"
   exporter_tls_insecure       = each.value.exporter_tls_insecure
   install_demo_workloads      = false
-}
-
-module "binding_prod_a" {
-  source = "../../modules/cluster_binding"
-
-  providers = {
-    kubernetes.this = kubernetes.prod_a
-  }
-
-  cluster_name = "prod-a"
-  enabled      = var.workload_clusters["prod-a"].enabled
-
-  depends_on = [module.workload]
-}
-
-module "binding_prod_b" {
-  source = "../../modules/cluster_binding"
-
-  providers = {
-    kubernetes.this = kubernetes.prod_b
-  }
-
-  cluster_name = "prod-b"
-  enabled      = var.workload_clusters["prod-b"].enabled
-
-  depends_on = [module.workload]
 }

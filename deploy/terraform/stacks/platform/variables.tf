@@ -51,6 +51,18 @@ variable "ingest_token" {
   description = "Bearer token for Secret ingest-auth. Sensitive. Pass it as TF_VAR_ingest_token, never in tfvars or git. Required when central_overlay is prod. The dev overlay already contains the local placeholder dev-ingest-token."
 }
 
+variable "alert_webhook_url" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "Optional paging webhook. Pass it as TF_VAR_alert_webhook_url. When unset, Alertmanager and Grafana keep critical and warning in the UI. When set, both route those severities to the URL, grouped by cluster, business_line, tenant, and alertname. Never commit the value."
+
+  validation {
+    condition     = var.alert_webhook_url == null || var.alert_webhook_url == "" || can(regex("^https?://[^\\s\"']+$", var.alert_webhook_url))
+    error_message = "alert_webhook_url must be an http or https URL without spaces or quotes, or unset."
+  }
+}
+
 variable "workload_collector_replicas" {
   type        = number
   default     = 2
@@ -77,15 +89,7 @@ variable "workload_clusters" {
     # Set false only when those three OTLP endpoints actually speak TLS.
     exporter_tls_insecure = optional(bool, true)
   }))
-  description = "Workload clusters. Adding a cluster is a new map entry. The example aliases require the keys prod-a and prod-b."
-
-  validation {
-    condition = alltrue([
-      contains(keys(var.workload_clusters), "prod-a"),
-      contains(keys(var.workload_clusters), "prod-b"),
-    ])
-    error_message = "workload_clusters must include prod-a and prod-b because providers.tf binds those aliases. Set enabled=false to destroy one of them. A third cluster is another map entry plus a new alias."
-  }
+  description = "Workload clusters. Adding a cluster is one map entry. The agent and ConfigMap observability-cluster-binding are applied with that entry's kubeconfig. There is no per-cluster provider alias."
 
   validation {
     condition = alltrue([

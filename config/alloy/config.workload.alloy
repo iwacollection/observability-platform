@@ -298,13 +298,23 @@ loki.write "default" {
 	}
 }
 
+// Clients must send Authorization: Bearer <INGEST_TOKEN>. The token is the
+// same Secret ingest-auth value this process uses when it forwards to the
+// collector. A request without that header is rejected and cannot ride the
+// cluster credential.
+otelcol.auth.bearer "ingest" {
+	token = sys.env("INGEST_TOKEN")
+}
+
 otelcol.receiver.otlp "apps" {
 	grpc {
 		endpoint = "0.0.0.0:4317"
+		auth     = otelcol.auth.bearer.ingest.handler
 	}
 
 	http {
 		endpoint = "0.0.0.0:4318"
+		auth     = otelcol.auth.bearer.ingest.handler
 	}
 
 	output {

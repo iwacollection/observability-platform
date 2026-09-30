@@ -68,4 +68,5 @@ groups:
           source: grafana
         annotations:
           summary: OpenTelemetry Collector export failures are non-zero
+          runbook_url: docs/debugging.md#alert-CollectorExportFailures
         isPaused: false

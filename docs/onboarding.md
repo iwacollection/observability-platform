@@ -69,6 +69,16 @@ curl -sS -o /dev/null -w '%{http_code}\n' http://127.0.0.1:4318/v1/traces
 
 Alloy 也听 `4317/4318`，再转到 `otel-collector:4317`。Demo 默认不走 Alloy。已经把流量打到节点代理上的进程可以继续用 Alloy，网关仍然是 Collector。
 
+工作负载集群的 `config/alloy/config.workload.alloy` 在接收 OTLP 之前要求 bearer。请求头是：
+
+```text
+Authorization: Bearer <INGEST_TOKEN>
+```
+
+`<INGEST_TOKEN>` 就是 Secret `ingest-auth` 里的 `token`，也是 Alloy 转发给 Collector 时带的同一串。没有这个头的客户端会被拒绝，不能借集群的写入口令把数据送出去。本地占位是 `dev-ingest-token`。生产口令只通过 `TF_VAR_ingest_token` 进入 Secret，不要写进 git。
+
+别的命名空间要打到 Alloy 的 OTLP，Pod 和它所在的命名空间都要有标签 `observability.platform/otlp-client=true`。NetworkPolicy 只对这个来源放开 `4317` 和 `4318`。
+
 ## Prometheus 抓取
 
 平台自身、node_exporter 和中间件 exporter 写在 `config/prometheus/prometheus.yml` 的 `scrape_configs`。抓取间隔 15 秒。不要把 demo 加进 scrape：它没有 `/metrics`，`up` 会一直是 0，`TargetDown` 会响。

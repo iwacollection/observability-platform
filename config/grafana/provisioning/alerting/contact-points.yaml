@@ -1,14 +1,12 @@
 apiVersion: 1
 
-# Placeholder contact point. The URL uses the reserved .invalid TLD, so Grafana
-# cannot deliver a notification to a real system until you edit this file.
+# Paging is intentionally unconfigured.
+# ALERT_WEBHOOK_URL and TF_VAR_alert_webhook_url are unset in this committed file.
+# This contact point has no receivers, so Grafana keeps alerts in the UI and
+# does not POST them. config/grafana/provisioning/alerting/render-alerting.sh
+# adds a webhook receiver for critical and warning when the variable is set.
+# Do not commit a URL or a token.
 contactPoints:
   - orgId: 1
-    name: blackhole
-    receivers:
-      - uid: blackhole-webhook
-        type: webhook
-        disableResolveMessage: false
-        settings:
-          url: http://alerts.example.invalid/grafana
-          httpMethod: POST
+    name: unconfigured
+    receivers: []
