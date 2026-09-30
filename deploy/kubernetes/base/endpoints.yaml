@@ -1,0 +1,22 @@
+# Central stack and Compose-equivalent defaults. Workload clusters do not
+# use this object: Terraform writes the same ConfigMap name with that
+# cluster's name and the central URLs. Keys are read by Alloy and the
+# collector. Do not put tokens here.
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: observability-endpoints
+  labels:
+    app.kubernetes.io/name: observability-endpoints
+data:
+  CLUSTER_NAME: local
+  PROMETHEUS_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
+  LOKI_PUSH_URL: http://loki:3100/loki/api/v1/push
+  LOKI_OTLP_ENDPOINT: http://loki:3100/otlp
+  TEMPO_OTLP_ENDPOINT: tempo:4317
+  PYROSCOPE_OTLP_ENDPOINT: pyroscope:4040
+  PYROSCOPE_HTTP_URL: http://pyroscope:4040
+  # Explicit plaintext flag. This repo's central Loki, Tempo, and Pyroscope
+  # speak plaintext. stacks/attach-existing writes false unless the operator
+  # sets exporter_tls_insecure. Do not put a CA certificate in this file.
+  OTEL_EXPORTER_TLS_INSECURE: "true"

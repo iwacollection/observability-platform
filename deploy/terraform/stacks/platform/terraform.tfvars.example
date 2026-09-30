@@ -1,0 +1,43 @@
+# Copy to terraform.tfvars (gitignored) and point kubeconfig at files that
+# are not in this repository. The hostnames use the reserved .invalid TLD.
+
+central_kubeconfig   = "~/.kube/observability-central"
+central_kube_context = "central"
+central_overlay      = "dev"
+central_cluster_name = "local"
+
+# Leave grafana_admin_password unset in this file. Export
+# TF_VAR_grafana_admin_password. Do not commit a password.
+#
+# Leave ingest_token unset in this file. The dev overlay already contains
+# Secret ingest-auth with the local placeholder, which is not a production
+# credential. For prod, export TF_VAR_ingest_token. Terraform creates the
+# Secret. Do not kubectl-apply deploy/kubernetes/ingest-auth.secret.example.yaml.
+# A workload cluster also needs that variable or its collector cannot authenticate.
+#
+# workload_collector_replicas defaults to 2. It scales only the workload
+# cluster collector. It does not add a second Prometheus, Loki, Tempo, or
+# Pyroscope replica.
+
+workload_clusters = {
+  prod-a = {
+    kubeconfig                  = "~/.kube/observability-prod-a"
+    context                     = "prod-a"
+    prometheus_remote_write_url = "http://prometheus.central.example.invalid:9090/api/v1/write"
+    loki_push_url               = "http://loki.central.example.invalid:3100/loki/api/v1/push"
+    loki_otlp_endpoint          = "http://loki.central.example.invalid:3100/otlp"
+    tempo_otlp_endpoint         = "tempo.central.example.invalid:4317"
+    pyroscope_otlp_endpoint     = "pyroscope.central.example.invalid:4040"
+    pyroscope_http_url          = "http://pyroscope.central.example.invalid:4040"
+  }
+  prod-b = {
+    kubeconfig                  = "~/.kube/observability-prod-b"
+    context                     = "prod-b"
+    prometheus_remote_write_url = "http://prometheus.central.example.invalid:9090/api/v1/write"
+    loki_push_url               = "http://loki.central.example.invalid:3100/loki/api/v1/push"
+    loki_otlp_endpoint          = "http://loki.central.example.invalid:3100/otlp"
+    tempo_otlp_endpoint         = "tempo.central.example.invalid:4317"
+    pyroscope_otlp_endpoint     = "pyroscope.central.example.invalid:4040"
+    pyroscope_http_url          = "http://pyroscope.central.example.invalid:4040"
+  }
+}

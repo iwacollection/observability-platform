@@ -1,0 +1,15 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: observability
+resources:
+  - ../../base
+patches:
+  - path: resources.yaml
+  - path: demo-env.yaml
+# TENANCY:patches
+  - path: env-toc-checkout.yaml
+  - path: env-tob-admin-acme.yaml
+  - path: env-tob-billing-acme.yaml
+  - path: env-tob-admin-northwind.yaml
+  - path: env-tob-billing-northwind.yaml
+# TENANCY:patches:end

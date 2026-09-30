@@ -1,0 +1,106 @@
+apiVersion: 1
+
+datasources:
+  - name: Prometheus
+    uid: prometheus
+    type: prometheus
+    access: proxy
+    url: http://prometheus:9090
+    isDefault: true
+    editable: false
+    jsonData:
+      timeInterval: 15s
+      httpMethod: POST
+      # ToC only. ToB series use prometheus-tob-<org> from tenancy.yaml,
+      # whose exemplar destination is tempo-tob-<org>, not this uid.
+      exemplarTraceIdDestinations:
+        - name: trace_id
+          datasourceUid: tempo
+      httpHeaderName1: Authorization
+    # Bearer $__env{INGEST_AUTHORIZATION}. Not a token. Grafana expands it.
+    secureJsonData:
+      httpHeaderValue1: $__env{INGEST_AUTHORIZATION}
+
+  - name: Loki
+    uid: loki
+    type: loki
+    access: proxy
+    url: http://loki:3100
+    editable: false
+    jsonData:
+      timeout: 60
+      httpHeaderName1: X-Scope-OrgID
+      httpHeaderName2: Authorization
+      derivedFields:
+        - name: TraceID
+          matcherRegex: '"trace_id":"([0-9a-f]+)"'
+          url: "$${__value.raw}"
+          datasourceUid: tempo
+          urlDisplayLabel: View trace
+    # Org id toc, not a secret. Grafana only accepts header values here.
+    secureJsonData:
+      httpHeaderValue1: toc
+      httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+
+  - name: Tempo
+    uid: tempo
+    type: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: false
+    jsonData:
+      httpMethod: GET
+      httpHeaderName1: X-Scope-OrgID
+      httpHeaderName2: Authorization
+      tracesToLogsV2:
+        datasourceUid: loki
+        filterByTraceID: true
+        filterBySpanID: false
+        tags:
+          - key: service.name
+            value: service_name
+      tracesToProfiles:
+        datasourceUid: pyroscope
+        profileTypeId: process_cpu:cpu:nanoseconds:cpu:nanoseconds
+        tags:
+          - key: service.name
+            value: service_name
+      tracesToMetrics:
+        datasourceUid: prometheus
+        tags:
+          - key: service.name
+            value: service_name
+        queries:
+          - name: Request rate
+            query: "sum(rate(http_server_request_duration_seconds_count{service_name=\"$${__tags.service_name}\"}[5m]))"
+      serviceMap:
+        datasourceUid: prometheus
+      nodeGraph:
+        enabled: true
+      lokiSearch:
+        datasourceUid: loki
+    secureJsonData:
+      httpHeaderValue1: toc
+      httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+
+  - name: Pyroscope
+    uid: pyroscope
+    type: grafana-pyroscope-datasource
+    access: proxy
+    url: http://pyroscope:4040
+    editable: false
+    jsonData:
+      httpHeaderName1: X-Scope-OrgID
+      httpHeaderName2: Authorization
+    secureJsonData:
+      httpHeaderValue1: toc
+      httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+
+  - name: Alertmanager
+    uid: alertmanager
+    type: alertmanager
+    access: proxy
+    url: http://alertmanager:9093
+    editable: false
+    jsonData:
+      implementation: prometheus

@@ -1,0 +1,27 @@
+#!/usr/bin/env bash
+# Generate a short burst of demo traffic so metrics, logs, traces, and profiles move.
+set -euo pipefail
+base="${1:-http://127.0.0.1:8080}"
+count="${2:-40}"
+for _ in $(seq 1 "$count"); do
+  curl -fsS "$base/api/work?burn_ms=30" >/dev/null || true
+  curl -fsS "$base/healthz" >/dev/null || true
+  curl -sS -o /dev/null "$base/api/error" || true
+  curl -fsS "$base/api/slow?seconds=0.05" >/dev/null || true
+  curl -fsS "$base/api/orders?channel=web" >/dev/null || true
+  curl -fsS "$base/api/orders?channel=api" >/dev/null || true
+  curl -fsS "$base/api/checkout?method=card&fail=0&segment=anonymous&delay_ms=0" >/dev/null || true
+  curl -fsS "$base/api/checkout?method=wallet&fail=1&segment=authenticated&delay_ms=0" >/dev/null || true
+done
+echo "sent $count rounds to $base"
+# ToC checkout and one ToB tenant on cluster local. Northwind stays in the
+# allow-list but is not started by Compose.
+for path in \
+  "http://127.0.0.1:8081/api/checkout?method=card&fail=0&delay_ms=0" \
+  "http://127.0.0.1:8082/api/seats?plan=standard&count=2&limit=10" \
+  "http://127.0.0.1:8082/api/quota?class=standard&used=4&limit=10" \
+  "http://127.0.0.1:8083/api/invoices?fail=0"
+do
+  curl -fsS "$path" >/dev/null || true
+done
+echo "sent one round to toc-checkout and tob acme"

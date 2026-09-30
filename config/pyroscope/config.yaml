@@ -1,0 +1,46 @@
+# Single-binary Pyroscope. The image VOLUME is /data and is owned by uid 10001,
+# so every path below stays under /data. architecture_storage is left at the
+# binary default (v1-v2-dual), which is what the upstream Docker examples run.
+# Microservices and object storage belong on the Grafana Pyroscope Helm chart.
+
+# 4040 is the nginx ingest gateway in this pod's network namespace.
+# The process itself listens on localhost so a client cannot skip the gateway.
+server:
+  http_listen_address: 127.0.0.1
+  http_listen_port: 14040
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 19095
+  log_level: info
+
+# Verified against grafana/pyroscope v2.3.1 cmd/pyroscope/pyroscope.yaml:
+# multitenancy_enabled makes the server read X-Scope-OrgID. When it is
+# false the header is ignored and every profile is stored as "anonymous".
+multitenancy_enabled: true
+
+storage:
+  backend: filesystem
+  filesystem:
+    dir: /data/v2/shared
+
+pyroscopedb:
+  data_path: /data/v1
+
+metastore:
+  data_dir: /data/v2/metastore/data
+  raft:
+    dir: /data/v2/metastore/raft
+
+self_profiling:
+  disable_push: false
+  # Pushes to this process, not through the gateway. The header is required
+  # because multitenancy_enabled is true. platform is the shared org.
+  tenant_id: platform
+
+limits:
+  ingestion_rate_mb: 32
+  ingestion_burst_size_mb: 48
+  # Applies to the v1 write path. 0 would keep blocks forever.
+  compactor_blocks_retention_period: 168h
+
+analytics:
+  reporting_enabled: false

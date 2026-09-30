@@ -1,0 +1,137 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: pyroscope-data
+spec:
+  accessModes: ["ReadWriteOnce"]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: pyroscope
+  labels:
+    app.kubernetes.io/name: pyroscope
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: pyroscope
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: pyroscope
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10001
+        runAsGroup: 10001
+        fsGroup: 10001
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: pyroscope
+          image: grafana/pyroscope:2.3.1
+          imagePullPolicy: IfNotPresent
+          args:
+            - -config.file=/etc/pyroscope/config.yaml
+            - -target=all
+          ports:
+            - name: backend
+              containerPort: 14040
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 2Gi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: config
+              mountPath: /etc/pyroscope/config.yaml
+              subPath: config.yaml
+            - name: data
+              mountPath: /data
+            - name: tmp
+              mountPath: /tmp
+        - name: ingest-gateway
+          image: nginx:1.28.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/etc/ingest-gateway/entrypoint.sh"]
+          env:
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
+            - name: GATEWAY_MODE
+              value: pyroscope
+            - name: HTTP_LISTEN
+              value: "4040"
+            - name: HTTP_UPSTREAM
+              value: 127.0.0.1:14040
+          ports:
+            - name: http
+              containerPort: 4040
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: ingest-gateway
+              mountPath: /etc/ingest-gateway
+              readOnly: true
+            - name: nginx-tmp
+              mountPath: /tmp
+      volumes:
+        - name: config
+          configMap:
+            name: pyroscope-config
+        - name: data
+          persistentVolumeClaim:
+            claimName: pyroscope-data
+        - name: tmp
+          emptyDir: {}
+        - name: ingest-gateway
+          configMap:
+            name: ingest-gateway-config
+        - name: nginx-tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: pyroscope
+  labels:
+    app.kubernetes.io/name: pyroscope
+spec:
+  selector:
+    app.kubernetes.io/name: pyroscope
+  ports:
+    - name: http
+      port: 4040
+      targetPort: http

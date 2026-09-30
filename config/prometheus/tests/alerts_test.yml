@@ -1,0 +1,302 @@
+rule_files:
+  - ../rules/alerts.yml
+  - ../rules/recording.yml
+  - ../rules/tenancy.yml
+
+evaluation_interval: 1m
+
+tests:
+  - interval: 1m
+    input_series:
+      - series: 'up{job="prometheus",instance="prometheus:9090"}'
+        values: "1 1 0 0 0 0"
+      - series: 'http_server_request_duration_seconds_count{service_name="demo-app",http_route="/api/work",http_response_status_code="200"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_count{service_name="demo-app",http_route="/api/error",http_response_status_code="500"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/work",le="0.3"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/work",le="0.5"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/work",le="+Inf"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/error",le="0.3"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/error",le="0.5"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_bucket{service_name="demo-app",http_route="/api/error",le="+Inf"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: TargetDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: TargetDown
+        exp_alerts:
+          - exp_labels:
+              alertname: TargetDown
+              severity: critical
+              layer: meta
+              job: prometheus
+              instance: prometheus:9090
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TargetDown"
+
+              summary: "Scrape target is down"
+              description: "prometheus/prometheus:9090 has been unreachable for more than 2 minutes."
+      - eval_time: 10m
+        alertname: HighErrorRate
+        exp_alerts:
+          - exp_labels:
+              alertname: HighErrorRate
+              severity: warning
+              layer: application
+              service_name: demo-app
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-HighErrorRate"
+
+              summary: "HTTP 5xx error ratio is above 5%"
+              description: "demo-app error ratio is 50% over 5 minutes."
+    promql_expr_test:
+      - expr: slo:http_errors:ratio_rate5m{service_name="demo-app"}
+        eval_time: 10m
+        exp_samples:
+          - labels: 'slo:http_errors:ratio_rate5m{service_name="demo-app"}'
+            value: 0.5
+
+  - interval: 1m
+    input_series:
+      - series: 'up{job="node",instance="node-exporter:9100"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: NodeDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: NodeDown
+        exp_alerts:
+          - exp_labels:
+              alertname: NodeDown
+              severity: critical
+              layer: infrastructure
+              job: node
+              instance: node-exporter:9100
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-NodeDown"
+
+              summary: "Node exporter target is down"
+              description: "node-exporter:9100 has not been scraped for more than 2 minutes."
+
+  - interval: 1m
+    input_series:
+      - series: 'redis_up{job="redis",instance="redis-exporter:9121"}'
+        values: "1 1 0 0 0 0"
+    alert_rule_test:
+      - eval_time: 1m
+        alertname: RedisDown
+        exp_alerts: []
+      - eval_time: 5m
+        alertname: RedisDown
+        exp_alerts:
+          - exp_labels:
+              alertname: RedisDown
+              severity: critical
+              layer: middleware
+              job: redis
+              instance: redis-exporter:9121
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-RedisDown"
+
+              summary: "Redis exporter cannot reach Redis"
+              description: "redis-exporter:9121 reports redis_up 0."
+
+  - interval: 1m
+    input_series:
+      - series: 'business_payments_total{service_name="demo-app",result="failure",method="card"}'
+        values: "0+12x20"
+      - series: 'business_payments_total{service_name="demo-app",result="success",method="card"}'
+        values: "0+6x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: BusinessPaymentFailureRatio
+        exp_alerts:
+          - exp_labels:
+              alertname: BusinessPaymentFailureRatio
+              severity: warning
+              layer: business
+              service_name: demo-app
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-BusinessPaymentFailureRatio"
+
+              summary: "Payment failure ratio is above 10%"
+              description: "demo-app payment failures are above 10% of payments over 5 minutes."
+    promql_expr_test:
+      - expr: business:payments:failure_ratio5m{service_name="demo-app"}
+        eval_time: 10m
+        exp_samples:
+          - labels: 'business:payments:failure_ratio5m{service_name="demo-app"}'
+            value: 0.6666666666666666
+
+  # cluster is part of the aggregation. Two clusters with the same service
+  # name must not collapse into one series.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{cluster="prod-a",service_name="demo-app",http_route="/api/work",http_response_status_code="200"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_count{cluster="prod-b",service_name="demo-app",http_route="/api/work",http_response_status_code="200"}'
+        values: "0+60x20"
+    promql_expr_test:
+      - expr: slo:http_requests:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'slo:http_requests:rate5m{cluster="prod-a",service_name="demo-app"}'
+            value: 1
+          - labels: 'slo:http_requests:rate5m{cluster="prod-b",service_name="demo-app"}'
+            value: 1
+
+  - interval: 1m
+    input_series:
+      - series: 'loki_discarded_samples_total{reason="stream_limit",job="loki",tenant="fake"}'
+        values: "0+60x20"
+    alert_rule_test:
+      - eval_time: 2m
+        alertname: LokiSamplesDiscarded
+        exp_alerts: []
+      - eval_time: 10m
+        alertname: LokiSamplesDiscarded
+        exp_alerts:
+          - exp_labels:
+              alertname: LokiSamplesDiscarded
+              severity: warning
+              layer: meta
+              reason: stream_limit
+              tenant: fake
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-LokiSamplesDiscarded"
+
+              summary: "Loki is discarding log samples"
+              description: "Loki discard reason stream_limit is non-zero."
+
+  # ToB samples must not move a ToC rule. Two ToB tenants must not collapse.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{cluster="local",business_line="toc",tenant="consumer",service_name="toc-api",http_route="/api/work",http_response_status_code="200"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_count{cluster="prod-a",business_line="tob",tenant="acme",service_name="tob-billing",http_route="/api/invoices",http_response_status_code="200"}'
+        values: "0+600x20"
+      - series: 'http_server_request_duration_seconds_count{cluster="prod-a",business_line="tob",tenant="northwind",service_name="tob-billing",http_route="/api/invoices",http_response_status_code="200"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_count{cluster="prod-b",business_line="tob",tenant="acme",service_name="tob-billing",http_route="/api/invoices",http_response_status_code="200"}'
+        values: "0+60x20"
+      - series: 'business_payments_total{cluster="local",business_line="toc",tenant="consumer",service_name="toc-api",result="failure",method="card"}'
+        values: "0+10x20"
+      - series: 'business_payments_total{cluster="local",business_line="toc",tenant="consumer",service_name="toc-api",result="success",method="card"}'
+        values: "0+90x20"
+      - series: 'business_payments_total{cluster="local",business_line="tob",tenant="acme",service_name="tob-billing",result="failure",method="card"}'
+        values: "0+1000x20"
+      - series: 'business_invoices_total{cluster="prod-a",business_line="tob",tenant="acme",service_name="tob-billing",result="failure"}'
+        values: "0+30x20"
+      - series: 'business_invoices_total{cluster="prod-a",business_line="tob",tenant="acme",service_name="tob-billing",result="success"}'
+        values: "0+10x20"
+      - series: 'business_invoices_total{cluster="prod-a",business_line="toc",tenant="consumer",service_name="toc-api",result="failure"}'
+        values: "0+1000x20"
+      - series: 'business_api_quota_used{cluster="local",business_line="tob",tenant="acme",service_name="tob-admin",quota_class="standard"}'
+        values: "95x20"
+      - series: 'business_api_quota_limit{cluster="local",business_line="tob",tenant="acme",service_name="tob-admin",quota_class="standard"}'
+        values: "100x20"
+      - series: 'business_api_quota_used{cluster="local",business_line="tob",tenant="northwind",service_name="tob-admin",quota_class="standard"}'
+        values: "10x20"
+      - series: 'business_api_quota_limit{cluster="local",business_line="tob",tenant="northwind",service_name="tob-admin",quota_class="standard"}'
+        values: "100x20"
+      - series: 'business_seats_active{cluster="local",business_line="tob",tenant="acme",service_name="tob-admin",plan="enterprise"}'
+        values: "95x20"
+      - series: 'business_seats_limit{cluster="local",business_line="tob",tenant="acme",service_name="tob-admin",plan="enterprise"}'
+        values: "100x20"
+      - series: 'business_seats_active{cluster="local",business_line="tob",tenant="northwind",service_name="tob-admin",plan="enterprise"}'
+        values: "1x20"
+      - series: 'business_seats_limit{cluster="local",business_line="tob",tenant="northwind",service_name="tob-admin",plan="enterprise"}'
+        values: "100x20"
+    alert_rule_test:
+      - eval_time: 10m
+        alertname: TobInvoiceFailureRatio
+        exp_alerts:
+          - exp_labels:
+              alertname: TobInvoiceFailureRatio
+              severity: warning
+              layer: business
+              cluster: prod-a
+              tenant: acme
+              business_line: tob
+              service_name: tob-billing
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TobInvoiceFailureRatio"
+
+              summary: "ToB invoice failure ratio is above 10%"
+              description: "prod-a tenant acme tob-billing invoice failures are above 10%."
+      - eval_time: 10m
+        alertname: TocPaymentFailureRatio
+        exp_alerts: []
+      - eval_time: 15m
+        alertname: TobApiQuotaHigh
+        exp_alerts:
+          - exp_labels:
+              alertname: TobApiQuotaHigh
+              severity: warning
+              layer: business
+              cluster: local
+              tenant: acme
+              business_line: tob
+              service_name: tob-admin
+              quota_class: standard
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TobApiQuotaHigh"
+
+              summary: "ToB API quota utilization is above 90%"
+              description: "local tenant acme class standard is above 90% of the quota."
+      - eval_time: 15m
+        alertname: TobSeatSaturation
+        exp_alerts:
+          - exp_labels:
+              alertname: TobSeatSaturation
+              severity: warning
+              layer: business
+              cluster: local
+              tenant: acme
+              business_line: tob
+              service_name: tob-admin
+              plan: enterprise
+            exp_annotations:
+              runbook_url: "docs/debugging.md#alert-TobSeatSaturation"
+
+              summary: "ToB seat utilization is above 90%"
+              description: "local tenant acme plan enterprise is above 90% of the seat limit."
+    promql_expr_test:
+      - expr: toc:http_requests:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'toc:http_requests:rate5m{business_line="toc",cluster="local",service_name="toc-api",tenant="consumer"}'
+            value: 1
+      - expr: tob:http_requests:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'tob:http_requests:rate5m{business_line="tob",cluster="prod-a",service_name="tob-billing",tenant="acme"}'
+            value: 10
+          - labels: 'tob:http_requests:rate5m{business_line="tob",cluster="prod-a",service_name="tob-billing",tenant="northwind"}'
+            value: 1
+          - labels: 'tob:http_requests:rate5m{business_line="tob",cluster="prod-b",service_name="tob-billing",tenant="acme"}'
+            value: 1
+      - expr: business:payments:failure_ratio5m{business_line="toc",tenant="consumer"}
+        eval_time: 10m
+        exp_samples:
+          - labels: 'business:payments:failure_ratio5m{business_line="toc",cluster="local",service_name="toc-api",tenant="consumer"}'
+            value: 0.09999999999999999
+      - expr: tob:invoices:failure_ratio5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'tob:invoices:failure_ratio5m{business_line="tob",cluster="prod-a",service_name="tob-billing",tenant="acme"}'
+            value: 0.75
+      - expr: tob:api_quota:utilization{tenant="northwind"}
+        eval_time: 10m
+        exp_samples:
+          - labels: 'tob:api_quota:utilization{business_line="tob",cluster="local",quota_class="standard",service_name="tob-admin",tenant="northwind"}'
+            value: 0.1

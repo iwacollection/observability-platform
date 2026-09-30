@@ -1,0 +1,39 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Agent-only install for a workload cluster. The central stack stays in
+# deploy/kubernetes/base and the dev/prod overlays. This kustomization
+# reuses those manifests; it does not copy them.
+#
+# observability-endpoints is not included. modules/cluster_agent writes
+# that ConfigMap during terraform apply, then rolls the agent pods.
+# The central overlay includes the ConfigMap itself.
+namespace: observability
+resources:
+  - ../base/namespace.yaml
+  - ../base/otel-collector.yaml
+  - ../base/alloy.yaml
+  - ../base/node-exporter.yaml
+  - ../base/kube-state-metrics.yaml
+  - ../base/networkpolicy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: observability-platform
+    includeSelectors: false
+# Stateless collector. Two replicas share this ConfigMap. Alloy stays a
+# DaemonSet: it mounts the node and keeps only NODE_NAME, so a second pod
+# on the same node would scrape twice. Central Prometheus/Loki/Tempo/
+# Pyroscope are not scaled here.
+replicas:
+  - name: otel-collector
+    count: 2
+configMapGenerator:
+  - name: otel-collector-config
+    files:
+      - config.yaml=../../../config/otel-collector/config.yaml
+  - name: alloy-config
+    files:
+      # Key stays config.k8s.alloy because the DaemonSet mounts that name.
+      - config.k8s.alloy=../../../config/alloy/config.workload.alloy
+generatorOptions:
+  annotations:
+    app.kubernetes.io/part-of: observability-platform

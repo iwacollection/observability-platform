@@ -1,0 +1,7 @@
+# ConfigMap written by kubectl-apply.sh on each workload cluster.
+# Not part of the agent kustomization and not a per-cluster provider alias.
+required_components:
+  - cluster-binding
+components:
+  cluster-binding:
+    - {kind: ConfigMap, name: observability-cluster-binding, kustomize: [], terraform: script}

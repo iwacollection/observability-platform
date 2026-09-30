@@ -1,0 +1,205 @@
+# Generated from config/tenancy.yaml by scripts/render_tenancy.py.
+# X-Scope-OrgID values are org ids from the allow-list, not credentials.
+# Authorization is Bearer $__env{INGEST_AUTHORIZATION}. Grafana expands
+# that at provisioning time. Do not put the token in this file.
+# prometheus-tob-<id> is the same Prometheus as uid prometheus. Its
+# exemplarTraceIdDestinations point at tempo-tob-<id>, not uid tempo.
+apiVersion: 1
+datasources:
+- name: Loki platform
+  uid: loki-platform
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: platform
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Loki rejected
+  uid: loki-rejected
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: rejected
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Tempo rejected
+  uid: tempo-rejected
+  type: tempo
+  access: proxy
+  url: http://tempo:3200
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+    httpMethod: GET
+    tracesToProfiles:
+      datasourceUid: pyroscope-rejected
+    tracesToMetrics:
+      datasourceUid: prometheus
+    serviceMap:
+      datasourceUid: prometheus
+    nodeGraph:
+      enabled: true
+  secureJsonData:
+    httpHeaderValue1: rejected
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Pyroscope platform
+  uid: pyroscope-platform
+  type: grafana-pyroscope-datasource
+  access: proxy
+  url: http://pyroscope:4040
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: platform
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Pyroscope rejected
+  uid: pyroscope-rejected
+  type: grafana-pyroscope-datasource
+  access: proxy
+  url: http://pyroscope:4040
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: rejected
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Loki tob-acme
+  uid: loki-tob-acme
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: tob-acme
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Tempo tob-acme
+  uid: tempo-tob-acme
+  type: tempo
+  access: proxy
+  url: http://tempo:3200
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+    httpMethod: GET
+    tracesToLogsV2:
+      datasourceUid: loki-tob-acme
+      filterByTraceID: true
+      filterBySpanID: false
+    tracesToProfiles:
+      datasourceUid: pyroscope-tob-acme
+    tracesToMetrics:
+      datasourceUid: prometheus-tob-acme
+    serviceMap:
+      datasourceUid: prometheus-tob-acme
+    nodeGraph:
+      enabled: true
+  secureJsonData:
+    httpHeaderValue1: tob-acme
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Pyroscope tob-acme
+  uid: pyroscope-tob-acme
+  type: grafana-pyroscope-datasource
+  access: proxy
+  url: http://pyroscope:4040
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: tob-acme
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Prometheus tob-acme
+  uid: prometheus-tob-acme
+  type: prometheus
+  access: proxy
+  url: http://prometheus:9090
+  editable: false
+  jsonData:
+    httpHeaderName1: Authorization
+    timeInterval: 15s
+    httpMethod: POST
+    exemplarTraceIdDestinations:
+    - name: trace_id
+      datasourceUid: tempo-tob-acme
+  secureJsonData:
+    httpHeaderValue1: $__env{INGEST_AUTHORIZATION}
+- name: Loki tob-northwind
+  uid: loki-tob-northwind
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: tob-northwind
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Tempo tob-northwind
+  uid: tempo-tob-northwind
+  type: tempo
+  access: proxy
+  url: http://tempo:3200
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+    httpMethod: GET
+    tracesToLogsV2:
+      datasourceUid: loki-tob-northwind
+      filterByTraceID: true
+      filterBySpanID: false
+    tracesToProfiles:
+      datasourceUid: pyroscope-tob-northwind
+    tracesToMetrics:
+      datasourceUid: prometheus-tob-northwind
+    serviceMap:
+      datasourceUid: prometheus-tob-northwind
+    nodeGraph:
+      enabled: true
+  secureJsonData:
+    httpHeaderValue1: tob-northwind
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Pyroscope tob-northwind
+  uid: pyroscope-tob-northwind
+  type: grafana-pyroscope-datasource
+  access: proxy
+  url: http://pyroscope:4040
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpHeaderName2: Authorization
+  secureJsonData:
+    httpHeaderValue1: tob-northwind
+    httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
+- name: Prometheus tob-northwind
+  uid: prometheus-tob-northwind
+  type: prometheus
+  access: proxy
+  url: http://prometheus:9090
+  editable: false
+  jsonData:
+    httpHeaderName1: Authorization
+    timeInterval: 15s
+    httpMethod: POST
+    exemplarTraceIdDestinations:
+    - name: trace_id
+      datasourceUid: tempo-tob-northwind
+  secureJsonData:
+    httpHeaderValue1: $__env{INGEST_AUTHORIZATION}

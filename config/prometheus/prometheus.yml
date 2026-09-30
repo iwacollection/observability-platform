@@ -1,0 +1,125 @@
+# Scrapes platform self-metrics, node_exporter, and middleware exporters.
+# Application RED and business metrics arrive via remote write from the
+# OpenTelemetry Collector, not from a direct demo-app scrape.
+# Alloy remote-writes a second host copy as job=alloy-unix, cAdvisor, and
+# (on Kubernetes) kube-state-metrics. Dashboards use job="node".
+# Service DNS names match both Compose service names and Kubernetes Services.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  scrape_timeout: 10s
+  # Prometheus 3.9+ ingests native histograms only when this is set.
+  # Classic histograms are still scraped so existing rules keep working.
+  scrape_native_histograms: true
+  always_scrape_classic_histograms: true
+  # external_labels are attached when this Prometheus talks to Alertmanager
+  # or remote-writes onward. They are not stored on scraped series.
+  # metric_relabel_configs below write cluster=local into the TSDB so
+  # Grafana and recording rules can see it. Workload agents set their own
+  # cluster label before remote write; this receiver does not overwrite it.
+  external_labels:
+    cluster: local
+
+storage:
+  exemplars:
+    max_exemplars: 100000
+
+rule_files:
+  - /etc/prometheus/rules/*.yml
+
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets: ["alertmanager:9093"]
+
+scrape_configs:
+  # cluster=local is the Compose / central-stack identity. Workload
+  # clusters do not use this file to label their series; their agents
+  # remote-write with their own cluster label. Keep the value low
+  # cardinality: one string per stack, never a pod uid or user id.
+  - job_name: prometheus
+    static_configs:
+      - targets: ["prometheus:9090"]
+    metric_relabel_configs: &add_cluster
+      - target_label: cluster
+        replacement: local
+
+  - job_name: alertmanager
+    static_configs:
+      - targets: ["alertmanager:9093"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: loki
+    static_configs:
+      - targets: ["loki:3100"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: tempo
+    static_configs:
+      - targets: ["tempo:3200"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: pyroscope
+    static_configs:
+      - targets: ["pyroscope:4040"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: grafana
+    static_configs:
+      - targets: ["grafana:3000"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: otel-collector
+    static_configs:
+      - targets: ["otel-collector:8888"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: alloy
+    static_configs:
+      - targets: ["alloy:12345"]
+    metric_relabel_configs: *add_cluster
+
+  # Host metrics for the central stack only. job=node is the node_exporter
+  # Service in both Compose and the central Kubernetes namespace. Alloy's
+  # unix exporter uses job=alloy-unix so the two copies do not double CPU,
+  # disk, and network series. Workload clusters have no central Prometheus;
+  # config/alloy/config.workload.alloy scrapes node-exporter on each node
+  # and remote-writes job=node with that cluster's label.
+  - job_name: node
+    static_configs:
+      - targets: ["node-exporter:9100"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: redis
+    static_configs:
+      - targets: ["redis-exporter:9121"]
+    metric_relabel_configs:
+      - target_label: cluster
+        replacement: local
+      # redis_exporter key collectors attach the key name as a label.
+      # This stack does not enable them. Drop the series if they appear
+      # so one Redis key cannot become one Prometheus series.
+      - source_labels: [__name__]
+        regex: redis_key_.*
+        action: drop
+
+  - job_name: postgres
+    static_configs:
+      - targets: ["postgres-exporter:9187"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: nginx
+    static_configs:
+      - targets: ["nginx-exporter:9113"]
+    metric_relabel_configs: *add_cluster
+
+  - job_name: kafka
+    static_configs:
+      - targets: ["kafka-exporter:9308"]
+    metric_relabel_configs: *add_cluster
+
+  # kube-state-metrics is scraped by Alloy on Kubernetes only
+  # (config/alloy/config.k8s.alloy, job kube-state-metrics). It is not
+  # listed here: Compose has no API server, and a static target would
+  # keep TargetDown firing.

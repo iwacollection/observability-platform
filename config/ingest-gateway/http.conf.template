@@ -1,0 +1,64 @@
+# HTTP ingest gateway. /metrics, /ready, and Prometheus health stay open so
+# scrapes and probes work. Every other path requires
+# Authorization: Bearer <INGEST_TOKEN>. The token is substituted at start.
+worker_processes 1;
+pid /tmp/nginx.pid;
+error_log /tmp/nginx-error.log warn;
+
+events {
+    worker_connections 512;
+}
+
+http {
+    access_log /tmp/nginx-access.log;
+    client_body_temp_path /tmp/client_body;
+    proxy_temp_path /tmp/proxy;
+    fastcgi_temp_path /tmp/fastcgi;
+    uwsgi_temp_path /tmp/uwsgi;
+    scgi_temp_path /tmp/scgi;
+    client_max_body_size 64m;
+    proxy_request_buffering off;
+
+    map $http_authorization $ingest_ok {
+        default 0;
+        "Bearer ${INGEST_TOKEN}" 1;
+    }
+
+    server {
+        listen ${HTTP_LISTEN};
+
+        location = /_auth {
+            internal;
+            if ($ingest_ok = 0) {
+                return 401;
+            }
+            return 204;
+        }
+
+        location = /metrics {
+            proxy_pass http://${HTTP_UPSTREAM};
+        }
+
+        location = /ready {
+            proxy_pass http://${HTTP_UPSTREAM};
+        }
+
+        location = /-/ready {
+            proxy_pass http://${HTTP_UPSTREAM};
+        }
+
+        location = /-/healthy {
+            proxy_pass http://${HTTP_UPSTREAM};
+        }
+
+        location / {
+            auth_request /_auth;
+            proxy_pass http://${HTTP_UPSTREAM};
+            proxy_http_version 1.1;
+            proxy_set_header Host $host;
+            proxy_set_header X-Scope-OrgID $http_x_scope_orgid;
+            proxy_set_header Authorization "";
+            proxy_set_header Content-Type $content_type;
+        }
+    }
+}

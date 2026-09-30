@@ -1,0 +1,126 @@
+# Objects module.central installs on the central cluster.
+# kustomize lists overlays whose `kustomize build` must contain the object.
+# ConfigMap names are generator names; Kustomize appends a hash.
+# terraform: prod | optional | ""  — prod Secret ingest-auth is kubernetes_secret_v1.
+# The coverage check fails if a rendered kind/name is not listed here.
+required_components:
+  - namespace
+  - prometheus
+  - alertmanager
+  - loki
+  - tempo
+  - pyroscope
+  - grafana
+  - dashboards
+  - rules
+  - ingest-gateway
+  - otel-collector
+  - alloy
+  - node-exporter
+  - kube-state-metrics
+  - middleware
+  - workloads
+  - endpoints
+  - tenancy
+  - networkpolicy
+  - secrets
+generated_workloads:
+  # Names come from config/tenancy.yaml. toc-api is Deployment demo-app below.
+  kustomize:
+    - dev
+    - prod
+  kinds:
+    - Deployment
+    - Service
+components:
+  namespace:
+    - {kind: Namespace, name: observability, kustomize: [dev, prod], terraform: ""}
+  prometheus:
+    - {kind: Deployment, name: prometheus, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: prometheus, kustomize: [dev, prod], terraform: ""}
+    - {kind: PersistentVolumeClaim, name: prometheus-data, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: prometheus-config, kustomize: [dev, prod], terraform: ""}
+  alertmanager:
+    - {kind: Deployment, name: alertmanager, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: alertmanager, kustomize: [dev, prod], terraform: ""}
+    - {kind: PersistentVolumeClaim, name: alertmanager-data, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: alertmanager-config, kustomize: [dev, prod], terraform: ""}
+  loki:
+    - {kind: Deployment, name: loki, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: loki, kustomize: [dev, prod], terraform: ""}
+    - {kind: PersistentVolumeClaim, name: loki-data, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: loki-config, kustomize: [dev, prod], terraform: ""}
+  tempo:
+    - {kind: Deployment, name: tempo, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: tempo, kustomize: [dev, prod], terraform: ""}
+    - {kind: PersistentVolumeClaim, name: tempo-data, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: tempo-config, kustomize: [dev, prod], terraform: ""}
+  pyroscope:
+    - {kind: Deployment, name: pyroscope, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: pyroscope, kustomize: [dev, prod], terraform: ""}
+    - {kind: PersistentVolumeClaim, name: pyroscope-data, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: pyroscope-config, kustomize: [dev, prod], terraform: ""}
+  grafana:
+    - {kind: Deployment, name: grafana, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: grafana, kustomize: [dev, prod], terraform: ""}
+    - {kind: PersistentVolumeClaim, name: grafana-data, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: grafana-datasources, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: grafana-dashboards-provider, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: grafana-alerting, kustomize: [dev, prod], terraform: ""}
+  dashboards:
+    - {kind: ConfigMap, name: grafana-dashboards, kustomize: [dev, prod], terraform: ""}
+  rules:
+    - {kind: ConfigMap, name: prometheus-rules, kustomize: [dev, prod], terraform: ""}
+  ingest-gateway:
+    - {kind: ConfigMap, name: ingest-gateway-config, kustomize: [dev, prod], terraform: ""}
+  otel-collector:
+    - {kind: Deployment, name: otel-collector, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: otel-collector, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: otel-collector-config, kustomize: [dev, prod], terraform: ""}
+  alloy:
+    - {kind: DaemonSet, name: alloy, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: alloy, kustomize: [dev, prod], terraform: ""}
+    - {kind: ServiceAccount, name: alloy, kustomize: [dev, prod], terraform: ""}
+    - {kind: ClusterRole, name: observability-alloy, kustomize: [dev, prod], terraform: ""}
+    - {kind: ClusterRoleBinding, name: observability-alloy, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: alloy-config, kustomize: [dev, prod], terraform: ""}
+  node-exporter:
+    - {kind: DaemonSet, name: node-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: node-exporter, kustomize: [dev, prod], terraform: ""}
+  kube-state-metrics:
+    - {kind: Deployment, name: kube-state-metrics, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: kube-state-metrics, kustomize: [dev, prod], terraform: ""}
+    - {kind: ServiceAccount, name: kube-state-metrics, kustomize: [dev, prod], terraform: ""}
+    - {kind: ClusterRole, name: observability-kube-state-metrics, kustomize: [dev, prod], terraform: ""}
+    - {kind: ClusterRoleBinding, name: observability-kube-state-metrics, kustomize: [dev, prod], terraform: ""}
+  middleware:
+    - {kind: Deployment, name: redis, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: redis, kustomize: [dev, prod], terraform: ""}
+    - {kind: Deployment, name: redis-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: redis-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: redis-config, kustomize: [dev, prod], terraform: ""}
+    - {kind: Deployment, name: postgres, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: postgres, kustomize: [dev, prod], terraform: ""}
+    - {kind: Deployment, name: postgres-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: postgres-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: Deployment, name: nginx, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: nginx, kustomize: [dev, prod], terraform: ""}
+    - {kind: Deployment, name: nginx-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: nginx-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: ConfigMap, name: nginx-config, kustomize: [dev, prod], terraform: ""}
+    - {kind: Deployment, name: kafka, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: kafka, kustomize: [dev, prod], terraform: ""}
+    - {kind: Deployment, name: kafka-exporter, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: kafka-exporter, kustomize: [dev, prod], terraform: ""}
+  workloads:
+    - {kind: Deployment, name: demo-app, kustomize: [dev, prod], terraform: ""}
+    - {kind: Service, name: demo-app, kustomize: [dev, prod], terraform: ""}
+  endpoints:
+    - {kind: ConfigMap, name: observability-endpoints, kustomize: [dev, prod], terraform: ""}
+  tenancy:
+    - {kind: ConfigMap, name: observability-tenancy, kustomize: [dev, prod], terraform: ""}
+  networkpolicy:
+    - {kind: NetworkPolicy, name: observability-default, kustomize: [dev, prod], terraform: ""}
+  secrets:
+    - {kind: Secret, name: ingest-auth, kustomize: [dev], terraform: prod}
+    - {kind: Secret, name: grafana-admin, kustomize: [], terraform: optional}

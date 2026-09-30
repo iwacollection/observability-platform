@@ -1,0 +1,124 @@
+# Generated from config/tenancy.yaml by scripts/render_tenancy.py.
+# Cluster is local. ToC api stays in docker-compose.yml as demo-app
+# so the existing :8080 path and nginx upstream keep working.
+services:
+  toc-checkout:
+    image: demo-app:local
+    environment:
+      OTEL_SERVICE_NAME: toc-checkout
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      DEPLOYMENT_ENVIRONMENT: local
+      CLUSTER_NAME: local
+      BUSINESS_LINE: toc
+      TENANT_ID: consumer
+      SERVICE_ROLE: checkout
+      DEMO_LISTEN_ADDR: 0.0.0.0:8080
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"
+      OTEL_METRICS_EXEMPLAR_FILTER: trace_based
+    ports:
+      - "127.0.0.1:8081:8080"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+    mem_limit: 256m
+    restart: unless-stopped
+  tob-admin-acme:
+    image: demo-app:local
+    environment:
+      OTEL_SERVICE_NAME: tob-admin
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      DEPLOYMENT_ENVIRONMENT: local
+      CLUSTER_NAME: local
+      BUSINESS_LINE: tob
+      TENANT_ID: acme
+      SERVICE_ROLE: admin
+      DEMO_LISTEN_ADDR: 0.0.0.0:8080
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"
+      OTEL_METRICS_EXEMPLAR_FILTER: trace_based
+    ports:
+      - "127.0.0.1:8082:8080"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+    mem_limit: 256m
+    restart: unless-stopped
+  tob-billing-acme:
+    image: demo-app:local
+    environment:
+      OTEL_SERVICE_NAME: tob-billing
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      DEPLOYMENT_ENVIRONMENT: local
+      CLUSTER_NAME: local
+      BUSINESS_LINE: tob
+      TENANT_ID: acme
+      SERVICE_ROLE: billing
+      DEMO_LISTEN_ADDR: 0.0.0.0:8080
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"
+      OTEL_METRICS_EXEMPLAR_FILTER: trace_based
+    ports:
+      - "127.0.0.1:8083:8080"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+    mem_limit: 256m
+    restart: unless-stopped
+  tob-admin-northwind:
+    image: demo-app:local
+    environment:
+      OTEL_SERVICE_NAME: tob-admin
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      DEPLOYMENT_ENVIRONMENT: local
+      CLUSTER_NAME: local
+      BUSINESS_LINE: tob
+      TENANT_ID: northwind
+      SERVICE_ROLE: admin
+      DEMO_LISTEN_ADDR: 0.0.0.0:8080
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"
+      OTEL_METRICS_EXEMPLAR_FILTER: trace_based
+    ports:
+      - "127.0.0.1:8084:8080"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+    mem_limit: 256m
+    restart: unless-stopped
+  tob-billing-northwind:
+    image: demo-app:local
+    environment:
+      OTEL_SERVICE_NAME: tob-billing
+      OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      DEPLOYMENT_ENVIRONMENT: local
+      CLUSTER_NAME: local
+      BUSINESS_LINE: tob
+      TENANT_ID: northwind
+      SERVICE_ROLE: billing
+      DEMO_LISTEN_ADDR: 0.0.0.0:8080
+      OTEL_METRIC_EXPORT_INTERVAL: "5000"
+      OTEL_METRICS_EXEMPLAR_FILTER: trace_based
+    ports:
+      - "127.0.0.1:8085:8080"
+    depends_on:
+      otel-collector:
+        condition: service_started
+      pyroscope:
+        condition: service_started
+    mem_limit: 256m
+    restart: unless-stopped

@@ -1,0 +1,76 @@
+# Monolithic Tempo (-target=all). Local block storage under /var/tempo.
+# The OTLP receivers listen on 0.0.0.0 so the same file works in Compose
+# (hostname tempo) and in Kubernetes (pod hostname is not the Service name).
+# Distributed Tempo (distributors, ingesters, object storage) belongs on the
+# upstream Tempo Helm chart; do not scale this file past one replica.
+
+# X-Scope-OrgID selects the trace tenant. Org ids match config/tenancy.yaml.
+multitenancy_enabled: true
+
+stream_over_http_enabled: true
+
+server:
+  # 3200 is the nginx ingest gateway. This process is localhost-only.
+  http_listen_address: 127.0.0.1
+  http_listen_port: 13200
+  log_level: info
+
+distributor:
+  receivers:
+    otlp:
+      protocols:
+        grpc:
+          endpoint: 127.0.0.1:14317
+        http:
+          endpoint: 127.0.0.1:14318
+
+metrics_generator:
+  registry:
+    external_labels:
+      source: tempo
+      # Do not set cluster here. A constant would stamp every workload's
+      # span metrics with the same value. The cluster dimension below is
+      # copied from the trace resource attribute.
+  storage:
+    path: /var/tempo/generator/wal
+    remote_write:
+      # -config.expand-env=true. INGEST_AUTHORIZATION is "Bearer <token>".
+      - url: http://prometheus:9090/api/v1/write
+        send_exemplars: true
+        headers:
+          Authorization: ${INGEST_AUTHORIZATION}
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks
+
+# Tempo 3 moved block retention under backend_worker.compaction.block_retention.
+# The default is 14 days. Setting the block here also requires a backend
+# scheduler address, which the single-binary local topology does not run.
+# Leave the default in place until you move to the distributed Helm chart.
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: ["span-metrics", "service-graphs"]
+      generate_native_histograms: both
+      processor:
+        span_metrics:
+          # Resource attribute set by the collector (or the SDK). Low
+          # cardinality: one value per cluster. Do not add http.route here.
+          dimensions:
+            - cluster
+            - tenant
+            - business_line
+        service_graphs:
+          dimensions:
+            - cluster
+            - tenant
+            - business_line
+
+usage_report:
+  reporting_enabled: false

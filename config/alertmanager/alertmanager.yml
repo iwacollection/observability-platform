@@ -1,0 +1,41 @@
+# Paging is intentionally unconfigured.
+# ALERT_WEBHOOK_URL and TF_VAR_alert_webhook_url are unset in this committed file.
+# The critical and warning receivers have no delivery settings, so Alertmanager
+# keeps alerts in the UI and does not send them. config/alertmanager/entrypoint.sh
+# adds a webhook to those two receivers when the variable is set.
+# Do not commit a URL or a token.
+#
+# Grouping is cluster, business_line, tenant, and alertname in both modes.
+
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: blackhole
+  group_by: ["cluster", "business_line", "tenant", "alertname"]
+  group_wait: 30s
+  group_interval: 5m
+  repeat_interval: 4h
+  routes:
+    - matchers:
+        - severity="critical"
+      receiver: critical
+      continue: false
+    - matchers:
+        - severity="warning"
+      receiver: warning
+      continue: false
+
+inhibit_rules:
+  # A critical alert suppresses the warning of the same name on the same
+  # cluster, business line, tenant, and service.
+  - source_matchers:
+      - severity="critical"
+    target_matchers:
+      - severity="warning"
+    equal: ["alertname", "cluster", "business_line", "tenant", "service_name"]
+
+receivers:
+  - name: blackhole
+  - name: critical
+  - name: warning

@@ -1,0 +1,611 @@
+# Platform, middleware, application, business, and meta alerts.
+# Receivers are selected in Alertmanager by severity.
+# label layer is one of: infrastructure, middleware, application, business, meta.
+# Keep annotations stable: config/prometheus/tests/alerts_test.yml matches them.
+groups:
+  - name: platform-availability
+    rules:
+      - alert: TargetDown
+        expr: up == 0
+        for: 2m
+        labels:
+          severity: critical
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-TargetDown"
+          summary: "Scrape target is down"
+          description: "{{ $labels.job }}/{{ $labels.instance }} has been unreachable for more than 2 minutes."
+
+      - alert: CollectorExportFailures
+        expr: |
+          (
+            sum by (cluster) (rate(otelcol_exporter_send_failed_spans_total[5m]))
+            or
+            sum by (cluster) (rate(otelcol_exporter_send_failed_spans[5m]))
+          ) > 0
+          or
+          (
+            sum by (cluster) (rate(otelcol_exporter_send_failed_metric_points_total[5m]))
+            or
+            sum by (cluster) (rate(otelcol_exporter_send_failed_metric_points[5m]))
+          ) > 0
+          or
+          (
+            sum by (cluster) (rate(otelcol_exporter_send_failed_log_records_total[5m]))
+            or
+            sum by (cluster) (rate(otelcol_exporter_send_failed_log_records[5m]))
+          ) > 0
+        for: 5m
+        labels:
+          severity: critical
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-CollectorExportFailures"
+          summary: "OpenTelemetry Collector is failing to export telemetry"
+          description: "Exporter send failures have been non-zero for 5 minutes. Metrics, logs, or traces are being dropped after retry."
+
+      - alert: CollectorRefusedData
+        expr: |
+          (
+            sum by (cluster) (rate(otelcol_receiver_refused_spans_total[5m]))
+            or
+            sum by (cluster) (rate(otelcol_receiver_refused_spans[5m]))
+          ) > 0
+          or
+          (
+            sum by (cluster) (rate(otelcol_processor_dropped_spans_total[5m]))
+            or
+            sum by (cluster) (rate(otelcol_processor_dropped_spans[5m]))
+          ) > 0
+          or
+          (
+            sum by (cluster) (rate(otelcol_processor_dropped_metric_points_total[5m]))
+            or
+            sum by (cluster) (rate(otelcol_processor_dropped_metric_points[5m]))
+          ) > 0
+          or
+          (
+            sum by (cluster) (rate(otelcol_processor_dropped_log_records_total[5m]))
+            or
+            sum by (cluster) (rate(otelcol_processor_dropped_log_records[5m]))
+          ) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-CollectorRefusedData"
+          summary: "OpenTelemetry Collector is refusing or dropping data"
+          description: "The collector memory limiter or a receiver is dropping telemetry. Raise memory or reduce cardinality."
+
+      - alert: CollectorExporterQueueNearFull
+        expr: |
+          (
+            sum by (cluster, exporter) (otelcol_exporter_queue_size)
+            /
+            sum by (cluster, exporter) (otelcol_exporter_queue_capacity)
+          ) > 0.8
+          and
+          sum by (cluster, exporter) (otelcol_exporter_queue_capacity) > 0
+        for: 10m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-CollectorExporterQueueNearFull"
+          summary: "Collector exporter queue is over 80% full"
+          description: "Exporter {{ $labels.exporter }} is retaining batches. Downstream remote write or OTLP is slower than ingest."
+
+      - alert: DiskSpaceLow
+        expr: |
+          (
+            node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"}
+            /
+            node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"}
+          ) < 0.15
+          and
+          node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"} > 0
+        for: 10m
+        labels:
+          severity: warning
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-DiskSpaceLow"
+          summary: "Filesystem free space is below 15%"
+          description: "{{ $labels.instance }} {{ $labels.mountpoint }} has less than 15% free space."
+
+  - name: infrastructure
+    rules:
+      - alert: NodeDown
+        expr: up{job="node"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-NodeDown"
+          summary: "Node exporter target is down"
+          description: "{{ $labels.instance }} has not been scraped for more than 2 minutes."
+
+      - alert: NodeCPUSaturation
+        expr: |
+          (1 - avg by (cluster, instance) (rate(node_cpu_seconds_total{job="node",mode="idle"}[5m]))) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-NodeCPUSaturation"
+          summary: "Node CPU utilization is above 85%"
+          description: "{{ $labels.instance }} CPU utilization is above 85% for 10 minutes."
+
+      - alert: NodeMemorySaturation
+        expr: |
+          (
+            1 - (
+              node_memory_MemAvailable_bytes{job="node"}
+              /
+              node_memory_MemTotal_bytes{job="node"}
+            )
+          ) > 0.90
+        for: 10m
+        labels:
+          severity: warning
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-NodeMemorySaturation"
+          summary: "Node memory utilization is above 90%"
+          description: "{{ $labels.instance }} has less than 10% memory available."
+
+      - alert: NodeLoadHigh
+        expr: |
+          node_load1{job="node"}
+          / on(cluster, instance) group_left()
+          count by (cluster, instance) (node_cpu_seconds_total{job="node",mode="idle"})
+          > 2
+        for: 15m
+        labels:
+          severity: warning
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-NodeLoadHigh"
+          summary: "Node load average is above 2 per CPU"
+          description: "{{ $labels.instance }} load1 is more than twice the CPU count."
+
+      - alert: NodeDiskWillFill
+        expr: |
+          predict_linear(
+            node_filesystem_avail_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"}[6h],
+            4 * 3600
+          ) < 0
+          and
+          node_filesystem_size_bytes{job="node",fstype!~"tmpfs|overlay|squashfs|ramfs|aufs|nsfs"} > 0
+        for: 30m
+        labels:
+          severity: warning
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-NodeDiskWillFill"
+          summary: "Filesystem is predicted to fill within 4 hours"
+          description: "{{ $labels.instance }} {{ $labels.mountpoint }} trends to zero free space within 4 hours."
+
+      - alert: KubePodNotReady
+        expr: |
+          kube_pod_status_ready{job="kube-state-metrics",condition="false"} > 0
+        for: 10m
+        labels:
+          severity: warning
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-KubePodNotReady"
+          summary: "Kubernetes pod is not ready"
+          description: "Pod {{ $labels.namespace }}/{{ $labels.pod }} has been unready for 10 minutes."
+
+      - alert: KubeDeploymentUnavailable
+        expr: |
+          kube_deployment_status_replicas_unavailable{job="kube-state-metrics"} > 0
+        for: 10m
+        labels:
+          severity: warning
+          layer: infrastructure
+        annotations:
+          runbook_url: "docs/debugging.md#alert-KubeDeploymentUnavailable"
+          summary: "Kubernetes deployment has unavailable replicas"
+          description: "Deployment {{ $labels.namespace }}/{{ $labels.deployment }} has unavailable replicas."
+
+  - name: middleware
+    rules:
+      - alert: RedisDown
+        expr: redis_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-RedisDown"
+          summary: "Redis exporter cannot reach Redis"
+          description: "{{ $labels.instance }} reports redis_up 0."
+
+      - alert: RedisMemorySaturation
+        expr: |
+          redis_memory_used_bytes / redis_memory_max_bytes > 0.9
+          and
+          redis_memory_max_bytes > 0
+        for: 10m
+        labels:
+          severity: warning
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-RedisMemorySaturation"
+          summary: "Redis memory is above 90% of maxmemory"
+          description: "{{ $labels.instance }} is close to maxmemory. Evictions or rejected writes follow."
+
+      - alert: RedisRejectedConnections
+        expr: sum by (cluster, instance) (rate(redis_rejected_connections_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-RedisRejectedConnections"
+          summary: "Redis is rejecting connections"
+          description: "{{ $labels.instance }} rejected new connections over the last 5 minutes."
+
+      - alert: PostgresDown
+        expr: pg_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-PostgresDown"
+          summary: "Postgres exporter cannot reach PostgreSQL"
+          description: "{{ $labels.instance }} reports pg_up 0."
+
+      - alert: PostgresConnectionSaturation
+        expr: |
+          sum by (cluster) (pg_stat_database_numbackends)
+          /
+          clamp_min(max by (cluster) (pg_settings_max_connections), 1)
+          > 0.8
+        for: 10m
+        labels:
+          severity: warning
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-PostgresConnectionSaturation"
+          summary: "PostgreSQL connections are above 80% of max_connections"
+          description: "Backends are above 80% of pg_settings_max_connections."
+
+      - alert: PostgresRollbackRatio
+        expr: |
+          (
+            sum by (cluster, datname) (rate(pg_stat_database_xact_rollback[5m]))
+            /
+            clamp_min(
+              sum by (cluster, datname) (rate(pg_stat_database_xact_commit[5m]))
+              +
+              sum by (cluster, datname) (rate(pg_stat_database_xact_rollback[5m])),
+              1e-9
+            )
+          ) > 0.1
+          and
+          sum by (cluster, datname) (rate(pg_stat_database_xact_rollback[5m])) > 0
+        for: 10m
+        labels:
+          severity: warning
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-PostgresRollbackRatio"
+          summary: "PostgreSQL rollback ratio is above 10%"
+          description: "Database {{ $labels.datname }} is rolling back more than 10% of transactions."
+
+      - alert: NginxDown
+        expr: nginx_up == 0
+        for: 2m
+        labels:
+          severity: critical
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-NginxDown"
+          summary: "Nginx exporter cannot read stub_status"
+          description: "{{ $labels.instance }} reports nginx_up 0."
+
+      - alert: NginxDroppedConnections
+        expr: |
+          (
+            sum by (cluster) (rate(nginx_connections_accepted[5m]))
+            -
+            sum by (cluster) (rate(nginx_connections_handled[5m]))
+          ) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-NginxDroppedConnections"
+          summary: "Nginx is accepting connections it does not handle"
+          description: "accepted minus handled is positive. worker_connections is 256 in config/nginx/nginx.conf."
+
+      - alert: KafkaNoBrokers
+        expr: kafka_brokers < 1
+        for: 2m
+        labels:
+          severity: critical
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-KafkaNoBrokers"
+          summary: "Kafka exporter sees no brokers"
+          description: "{{ $labels.instance }} reports kafka_brokers below 1."
+
+      - alert: KafkaConsumerLagHigh
+        expr: sum by (cluster, consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        for: 10m
+        labels:
+          severity: warning
+          layer: middleware
+        annotations:
+          runbook_url: "docs/debugging.md#alert-KafkaConsumerLagHigh"
+          summary: "Kafka consumer group lag is above 10000"
+          description: "Group {{ $labels.consumergroup }} topic {{ $labels.topic }} lag is above 10000."
+
+  - name: http-red
+    rules:
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum by (cluster, tenant, business_line, service_name) (
+              rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[5m])
+            )
+            /
+            sum by (cluster, tenant, business_line, service_name) (
+              rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
+            )
+          ) > 0.05
+          and
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
+          ) > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          layer: application
+        annotations:
+          runbook_url: "docs/debugging.md#alert-HighErrorRate"
+          summary: "HTTP 5xx error ratio is above 5%"
+          description: "{{ $labels.service_name }} error ratio is {{ $value | humanizePercentage }} over 5 minutes."
+
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(
+            0.95,
+            sum by (cluster, tenant, business_line, service_name, le) (
+              rate(http_server_request_duration_seconds_bucket{http_route!="/healthz"}[5m])
+            )
+          ) > 0.5
+        for: 10m
+        labels:
+          severity: warning
+          layer: application
+        annotations:
+          runbook_url: "docs/debugging.md#alert-HighLatency"
+          summary: "HTTP p95 latency is above 500ms"
+          description: "{{ $labels.service_name }} p95 latency is {{ $value | humanizeDuration }}."
+
+      - alert: AppInFlightSaturation
+        expr: sum by (cluster, tenant, business_line, service_name) (http_server_active_requests) > 100
+        for: 5m
+        labels:
+          severity: warning
+          layer: application
+        annotations:
+          runbook_url: "docs/debugging.md#alert-AppInFlightSaturation"
+          summary: "HTTP in-flight requests are above 100"
+          description: "{{ $labels.service_name }} has more than 100 in-flight requests."
+
+      - alert: AppProcessCPUSaturation
+        expr: max by (cluster, service_name) (process_runtime_cpython_cpu_utilization_ratio) > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          layer: application
+        annotations:
+          runbook_url: "docs/debugging.md#alert-AppProcessCPUSaturation"
+          summary: "Process CPU utilization is above 90%"
+          description: "{{ $labels.service_name }} CPython runtime CPU is above 90%."
+
+  - name: business
+    rules:
+      - alert: BusinessPaymentFailureRatio
+        expr: |
+          (
+            sum by (cluster, tenant, business_line, service_name) (rate(business_payments_total{result="failure"}[5m]))
+            /
+            sum by (cluster, tenant, business_line, service_name) (rate(business_payments_total[5m]))
+          ) > 0.1
+          and
+          sum by (cluster, tenant, business_line, service_name) (rate(business_payments_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          layer: business
+        annotations:
+          runbook_url: "docs/debugging.md#alert-BusinessPaymentFailureRatio"
+          summary: "Payment failure ratio is above 10%"
+          description: "{{ $labels.service_name }} payment failures are above 10% of payments over 5 minutes."
+
+      - alert: BusinessPaymentFailureBurn
+        expr: |
+          business:payments:failure_ratio5m > 0.2
+          and
+          business:payments:failure_ratio1h > 0.1
+        for: 5m
+        labels:
+          severity: warning
+          layer: business
+        annotations:
+          runbook_url: "docs/debugging.md#alert-BusinessPaymentFailureBurn"
+          summary: "Payment failure ratio is burning on two windows"
+          description: "{{ $labels.service_name }} failure ratio is above 20% for 5 minutes and 10% for 1 hour."
+
+  - name: meta-pipeline
+    rules:
+      - alert: PrometheusRuleEvalFailures
+        expr: sum by (cluster) (rate(prometheus_rule_evaluation_failures_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-PrometheusRuleEvalFailures"
+          summary: "Prometheus rule evaluation is failing"
+          description: "prometheus_rule_evaluation_failures_total increased over 5 minutes."
+
+      - alert: PrometheusHighSeries
+        expr: prometheus_tsdb_head_series > 200000
+        for: 15m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-PrometheusHighSeries"
+          summary: "Prometheus head series is above 200000"
+          description: "TSDB head series crossed 200000. Look for a new label before raising the limit."
+
+      - alert: PrometheusSeriesChurn
+        expr: sum by (cluster) (rate(prometheus_tsdb_head_series_created_total[10m])) > 50
+        for: 15m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-PrometheusSeriesChurn"
+          summary: "Prometheus series churn is above 50 per second"
+          description: "New series are being created faster than 50/s over 10 minutes."
+
+      - alert: LokiSamplesDiscarded
+        expr: sum by (cluster, tenant, reason) (rate(loki_discarded_samples_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-LokiSamplesDiscarded"
+          summary: "Loki is discarding log samples"
+          description: "Loki discard reason {{ $labels.reason }} is non-zero."
+
+      - alert: LokiStreamChurn
+        expr: sum by (cluster) (rate(loki_ingester_streams_created_total[10m])) > 50
+        for: 10m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-LokiStreamChurn"
+          summary: "Loki is creating streams faster than 50 per second"
+          description: "New log streams exceed 50/s. A label value is probably unbounded."
+
+      - alert: TempoSpansDiscarded
+        expr: sum by (cluster, tenant, reason) (rate(tempo_discarded_spans_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-TempoSpansDiscarded"
+          summary: "Tempo is discarding spans"
+          description: "Tempo discard reason {{ $labels.reason }} is non-zero."
+
+      - alert: PyroscopeSamplesDiscarded
+        expr: sum by (cluster, reason) (rate(pyroscope_discarded_samples_total[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-PyroscopeSamplesDiscarded"
+          summary: "Pyroscope is discarding profiles"
+          description: "Pyroscope discard reason {{ $labels.reason }} is non-zero."
+
+      - alert: AlloyRemoteWriteFailures
+        expr: sum by (cluster) (rate(prometheus_remote_storage_samples_failed_total{job="alloy"}[5m])) > 0
+        for: 5m
+        labels:
+          severity: warning
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-AlloyRemoteWriteFailures"
+          summary: "Alloy remote write is failing"
+          description: "prometheus_remote_storage_samples_failed_total on Alloy increased over 5 minutes."
+
+      - alert: GrafanaDown
+        expr: up{job="grafana"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-GrafanaDown"
+          summary: "Grafana scrape target is down"
+          description: "{{ $labels.instance }} has been down for more than 2 minutes."
+
+      - alert: AlertmanagerDown
+        expr: up{job="alertmanager"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          layer: meta
+        annotations:
+          runbook_url: "docs/debugging.md#alert-AlertmanagerDown"
+          summary: "Alertmanager scrape target is down"
+          description: "{{ $labels.instance }} has been down for more than 2 minutes."
+
+  - name: slo-burn
+    rules:
+      # 99.9% availability. Fast burn 14.4x consumes 2% of the 30-day budget in 1 hour.
+      - alert: SLOAvailabilityFastBurn
+        expr: |
+          slo:http_errors:ratio_rate5m > (14.4 * 0.001)
+          and
+          slo:http_errors:ratio_rate1h > (14.4 * 0.001)
+        for: 2m
+        labels:
+          severity: critical
+          slo: availability
+          layer: application
+        annotations:
+          runbook_url: "docs/debugging.md#alert-SLOAvailabilityFastBurn"
+          summary: "Availability SLO fast burn"
+          description: "{{ $labels.service_name }} is burning the 99.9% availability budget at more than 14.4x."
+
+      # Slow burn 6x consumes 5% of the 30-day budget in 6 hours.
+      - alert: SLOAvailabilitySlowBurn
+        expr: |
+          slo:http_errors:ratio_rate30m > (6 * 0.001)
+          and
+          slo:http_errors:ratio_rate6h > (6 * 0.001)
+        for: 15m
+        labels:
+          severity: warning
+          slo: availability
+          layer: application
+        annotations:
+          runbook_url: "docs/debugging.md#alert-SLOAvailabilitySlowBurn"
+          summary: "Availability SLO slow burn"
+          description: "{{ $labels.service_name }} is burning the 99.9% availability budget at more than 6x."
+
+      # 99% of requests under 300ms. Budget is 1%. Fast burn 14.4x.
+      - alert: SLOLatencyFastBurn
+        expr: |
+          (1 - slo:http_latency_good:ratio_rate5m) > (14.4 * 0.01)
+          and
+          (1 - slo:http_latency_good:ratio_rate1h) > (14.4 * 0.01)
+        for: 2m
+        labels:
+          severity: critical
+          slo: latency
+          layer: application
+        annotations:
+          runbook_url: "docs/debugging.md#alert-SLOLatencyFastBurn"
+          summary: "Latency SLO fast burn"
+          description: "{{ $labels.service_name }} is missing the 300ms latency objective fast enough to page."

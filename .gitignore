@@ -1,0 +1,31 @@
+.env
+deploy/docker-compose/.env
+
+# Runtime data if a bind mount is used instead of named volumes
+data/
+deploy/docker-compose/data/
+
+# Python
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+venv/
+
+# Local tooling and logs
+tmp/
+*.log
+.DS_Store
+
+# Terraform local state and provider cache. Lock files stay in git.
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+crash.*.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.tfvars
+*.auto.tfvars

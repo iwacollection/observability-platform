@@ -1,0 +1,15 @@
+apiVersion: 1
+
+# Root receiver is unconfigured until ALERT_WEBHOOK_URL is set.
+# Grouping is cluster, business_line, tenant, and alertname.
+policies:
+  - orgId: 1
+    receiver: unconfigured
+    group_by:
+      - cluster
+      - business_line
+      - tenant
+      - alertname
+    group_wait: 30s
+    group_interval: 5m
+    repeat_interval: 4h

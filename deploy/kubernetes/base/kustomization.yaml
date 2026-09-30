@@ -1,0 +1,100 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Config files live in /config so Compose can mount the same bytes.
+# Build with: kustomize build --load-restrictor LoadRestrictionsNone
+namespace: observability
+resources:
+  - namespace.yaml
+  - endpoints.yaml
+  - otel-collector.yaml
+  - prometheus.yaml
+  - alertmanager.yaml
+  - loki.yaml
+  - tempo.yaml
+  - pyroscope.yaml
+  - grafana.yaml
+  - alloy.yaml
+  - demo-app.yaml
+  - business-workloads.yaml
+  - node-exporter.yaml
+  - kube-state-metrics.yaml
+  - middleware.yaml
+  - networkpolicy.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: observability-platform
+    includeSelectors: false
+configMapGenerator:
+  - name: otel-collector-config
+    files:
+      - config.yaml=../../../config/otel-collector/config.yaml
+  - name: prometheus-config
+    files:
+      - prometheus.yml=../../../config/prometheus/prometheus.yml
+  - name: prometheus-rules
+    files:
+      - alerts.yml=../../../config/prometheus/rules/alerts.yml
+      - recording.yml=../../../config/prometheus/rules/recording.yml
+      - tenancy.yml=../../../config/prometheus/rules/tenancy.yml
+  - name: alertmanager-config
+    files:
+      - alertmanager.yml=../../../config/alertmanager/alertmanager.yml
+      - entrypoint.sh=../../../config/alertmanager/entrypoint.sh
+  - name: loki-config
+    files:
+      - loki.yaml=../../../config/loki/loki.yaml
+  - name: tempo-config
+    files:
+      - tempo.yaml=../../../config/tempo/tempo.yaml
+  - name: pyroscope-config
+    files:
+      - config.yaml=../../../config/pyroscope/config.yaml
+  - name: alloy-config
+    files:
+      - config.k8s.alloy=../../../config/alloy/config.k8s.alloy
+  - name: nginx-config
+    files:
+      - nginx.conf=../../../config/nginx/nginx.conf
+  - name: ingest-gateway-config
+    files:
+      - entrypoint.sh=../../../config/ingest-gateway/entrypoint.sh
+      - http.conf.template=../../../config/ingest-gateway/http.conf.template
+      - tempo.conf.template=../../../config/ingest-gateway/tempo.conf.template
+      - pyroscope.conf.template=../../../config/ingest-gateway/pyroscope.conf.template
+  - name: redis-config
+    files:
+      - redis.conf=../../../config/redis/redis.conf
+  - name: grafana-datasources
+    files:
+      - datasources.yaml=../../../config/grafana/provisioning/datasources/datasources.yaml
+      - tenancy.yaml=../../../config/grafana/provisioning/datasources/tenancy.yaml
+  - name: grafana-dashboards-provider
+    files:
+      - dashboards.yaml=../../../config/grafana/provisioning/dashboards/dashboards.yaml
+  - name: grafana-alerting
+    files:
+      - contact-points.yaml=../../../config/grafana/provisioning/alerting/contact-points.yaml
+      - policies.yaml=../../../config/grafana/provisioning/alerting/policies.yaml
+      - rules.yaml=../../../config/grafana/provisioning/alerting/rules.yaml
+      - render-alerting.sh=../../../config/grafana/provisioning/alerting/render-alerting.sh
+  - name: observability-tenancy
+    files:
+      - tenancy.yaml=../../../config/tenancy.yaml
+  - name: grafana-dashboards
+    files:
+      - overview.json=../../../config/grafana/dashboards/overview.json
+      - logs.json=../../../config/grafana/dashboards/logs.json
+      - traces.json=../../../config/grafana/dashboards/traces.json
+      - profiles.json=../../../config/grafana/dashboards/profiles.json
+      - host.json=../../../config/grafana/dashboards/host.json
+      - demo-app.json=../../../config/grafana/dashboards/demo-app.json
+      - infrastructure.json=../../../config/grafana/dashboards/infrastructure.json
+      - middleware.json=../../../config/grafana/dashboards/middleware.json
+      - application.json=../../../config/grafana/dashboards/application.json
+      - business.json=../../../config/grafana/dashboards/business.json
+      - meta.json=../../../config/grafana/dashboards/meta.json
+      - toc-line.json=../../../config/grafana/dashboards/toc-line.json
+      - tob-line.json=../../../config/grafana/dashboards/tob-line.json
+generatorOptions:
+  annotations:
+    app.kubernetes.io/part-of: observability-platform

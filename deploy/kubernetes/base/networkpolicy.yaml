@@ -1,0 +1,64 @@
+# Ingress: the observability namespace, plus an explicit labeled source for
+# workload OTLP. Both the namespace and the pod must carry
+# observability.platform/otlp-client=true, and only TCP 4317 and 4318 are
+# open to that source. Grafana :3000 and demo :8080 are not reachable from
+# other namespaces.
+#
+# Egress is not open to the world. DNS (UDP/TCP 53) is allowed anywhere.
+# Every port is allowed to pods in this namespace, which is how the
+# in-cluster Prometheus, Loki, Tempo, Pyroscope, Collector, and exporters
+# are reached. Anywhere else, only TCP 443, 4317, 4318, and 6443 are open.
+# 443/4317/4318 are the attach-existing remote-write and OTLP ports.
+# 6443 is the kube-apiserver endpoint port on clusters that do not publish
+# the API on 443. Ports such as 9090, 3100, 3200, and 4040 are denied once
+# the destination leaves this namespace.
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: observability-default
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+    - Egress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              observability.platform/otlp-client: "true"
+          podSelector:
+            matchLabels:
+              observability.platform/otlp-client: "true"
+      ports:
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+  egress:
+    - ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+    - to:
+        - ipBlock:
+            cidr: 0.0.0.0/0
+        - ipBlock:
+            cidr: "::/0"
+      ports:
+        - protocol: TCP
+          port: 443
+        - protocol: TCP
+          port: 4317
+        - protocol: TCP
+          port: 4318
+        - protocol: TCP
+          port: 6443

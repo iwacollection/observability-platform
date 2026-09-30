@@ -1,0 +1,42 @@
+# Objects module.cluster_agent installs on one workload cluster.
+# The agent kustomization does not include the central stack.
+# endpoints and ingest-auth are written by kubectl-apply.sh during terraform apply
+# because for_each cannot take a different kubernetes provider alias per cluster.
+required_components:
+  - namespace
+  - otel-collector
+  - alloy
+  - node-exporter
+  - kube-state-metrics
+  - networkpolicy
+  - endpoints
+  - secrets
+components:
+  namespace:
+    - {kind: Namespace, name: observability, kustomize: [agent], terraform: ""}
+  otel-collector:
+    - {kind: Deployment, name: otel-collector, kustomize: [agent], terraform: ""}
+    - {kind: Service, name: otel-collector, kustomize: [agent], terraform: ""}
+    - {kind: ConfigMap, name: otel-collector-config, kustomize: [agent], terraform: ""}
+  alloy:
+    - {kind: DaemonSet, name: alloy, kustomize: [agent], terraform: ""}
+    - {kind: Service, name: alloy, kustomize: [agent], terraform: ""}
+    - {kind: ServiceAccount, name: alloy, kustomize: [agent], terraform: ""}
+    - {kind: ClusterRole, name: observability-alloy, kustomize: [agent], terraform: ""}
+    - {kind: ClusterRoleBinding, name: observability-alloy, kustomize: [agent], terraform: ""}
+    - {kind: ConfigMap, name: alloy-config, kustomize: [agent], terraform: ""}
+  node-exporter:
+    - {kind: DaemonSet, name: node-exporter, kustomize: [agent], terraform: ""}
+    - {kind: Service, name: node-exporter, kustomize: [agent], terraform: ""}
+  kube-state-metrics:
+    - {kind: Deployment, name: kube-state-metrics, kustomize: [agent], terraform: ""}
+    - {kind: Service, name: kube-state-metrics, kustomize: [agent], terraform: ""}
+    - {kind: ServiceAccount, name: kube-state-metrics, kustomize: [agent], terraform: ""}
+    - {kind: ClusterRole, name: observability-kube-state-metrics, kustomize: [agent], terraform: ""}
+    - {kind: ClusterRoleBinding, name: observability-kube-state-metrics, kustomize: [agent], terraform: ""}
+  networkpolicy:
+    - {kind: NetworkPolicy, name: observability-default, kustomize: [agent], terraform: ""}
+  endpoints:
+    - {kind: ConfigMap, name: observability-endpoints, kustomize: [], terraform: script}
+  secrets:
+    - {kind: Secret, name: ingest-auth, kustomize: [], terraform: script}

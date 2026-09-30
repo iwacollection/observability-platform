@@ -1,0 +1,54 @@
+# Copy to terraform.tfvars (gitignored). Hostnames use the reserved .invalid
+# TLD. Do not commit terraform.tfvars, kubeconfig, or tokens.
+#
+# This stack attaches one workload cluster to Prometheus, Loki, Tempo,
+# Pyroscope, and Grafana that already exist. It does not create them.
+# Do not use prometheus.observability.svc or any other observability.svc name.
+
+cluster_name = "prod-a"
+kubeconfig   = "~/.kube/observability-prod-a"
+kube_context = "prod-a"
+
+# ToC. tenant is the label. org_id is the X-Scope-OrgID header.
+business_line = "toc"
+tenant        = "consumer"
+org_id        = "toc"
+
+# To switch this cluster to a ToB tenant, replace the three lines above:
+#   business_line = "tob"
+#   tenant        = "northwind"
+#   org_id        = "tob-northwind"
+# acme is the other catalog tenant: tenant = "acme", org_id = "tob-acme".
+
+prometheus_remote_write_url = "http://prometheus.obs.example.invalid:9090/api/v1/write"
+loki_push_url               = "http://loki.obs.example.invalid:3100/loki/api/v1/push"
+tempo_otlp_endpoint         = "tempo.obs.example.invalid:4317"
+tempo_query_url             = "http://tempo.obs.example.invalid:3200"
+pyroscope_url               = "http://pyroscope.obs.example.invalid:4040"
+grafana_url                 = "http://grafana.obs.example.invalid:3000"
+
+# Leave these unset in this file. Export them in the shell:
+#   export TF_VAR_ingest_token='existing-system-bearer-token'
+#   export TF_VAR_grafana_auth='grafana-api-token'
+# ingest_token is the raw token. Grafana's Authorization header is
+# "Bearer <token>". The agent sends the same scheme.
+#
+# A second cluster that should only install the agent:
+#   manage_grafana = false
+
+manage_grafana = true
+
+# Default false: HTTPS ingest uses TLS. Set true only for an explicit
+# plaintext endpoint. Do not commit a CA. A private CA is
+# TF_VAR_exporter_tls_ca_pem, not a file in this directory.
+exporter_tls_insecure = false
+
+# Default false: agent only. true also installs the generated ToC/ToB demos
+# (demo-app and business-workloads.yaml). Replica counts follow tenancy.yaml
+# replicas. acme and northwind are both 1 in the catalog.
+install_demo_workloads = false
+
+# true when the existing Prometheus is this repo's binary. The rule file is
+# still only an output. This stack does not upload it and does not create
+# recording-rule names on that Prometheus.
+existing_prometheus_is_repo = false

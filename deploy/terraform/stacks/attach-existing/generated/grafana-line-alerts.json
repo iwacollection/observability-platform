@@ -1,0 +1,43 @@
+{
+  "recording_rules_created_remotely": false,
+  "recording_rule_names": [
+    "toc:http_requests:rate5m",
+    "tob:http_requests:rate5m",
+    "toc:payments:failure_ratio5m",
+    "tob:invoices:failure_ratio5m",
+    "tob:seats:active",
+    "tob:seats:utilization",
+    "tob:api_quota:utilization"
+  ],
+  "note": "Grafana evaluates these expressions directly. The recording-rule names are not created on the remote Prometheus. When the existing Prometheus is this repo's binary, mount config/prometheus/rules/tenancy.yml. stacks/platform already does. This stack does not upload rules.",
+  "alerts": {
+    "toc": [
+      {
+        "name": "TocPaymentFailureRatio",
+        "pending": "5m",
+        "summary": "ToC payment failure ratio is above 10%",
+        "expr": "(\nsum by (cluster, tenant, business_line, service_name) (\n  rate(business_payments_total{business_line=\"toc\",tenant=\"consumer\",result=\"failure\"}[5m])\n)\n/\nsum by (cluster, tenant, business_line, service_name) (\n  rate(business_payments_total{business_line=\"toc\",tenant=\"consumer\"}[5m])\n)\n) > 0.1\nand\nsum by (cluster, tenant, business_line, service_name) (\n  rate(business_payments_total{business_line=\"toc\",tenant=\"consumer\"}[5m])\n) > 0.05"
+      }
+    ],
+    "tob": [
+      {
+        "name": "TobInvoiceFailureRatio",
+        "pending": "5m",
+        "summary": "ToB invoice failure ratio is above 10%",
+        "expr": "(\nsum by (cluster, tenant, business_line, service_name) (\n  rate(business_invoices_total{business_line=\"tob\",tenant=~\"acme|northwind\",result=\"failure\"}[5m])\n)\n/\nsum by (cluster, tenant, business_line, service_name) (\n  rate(business_invoices_total{business_line=\"tob\",tenant=~\"acme|northwind\"}[5m])\n)\n) > 0.1\nand\nsum by (cluster, tenant, business_line, service_name) (\n  rate(business_invoices_total{business_line=\"tob\",tenant=~\"acme|northwind\"}[5m])\n) > 0.05"
+      },
+      {
+        "name": "TobSeatSaturation",
+        "pending": "10m",
+        "summary": "ToB seat utilization is above 90%",
+        "expr": "(\nsum by (cluster, tenant, business_line, service_name, plan) (\n  business_seats_active{business_line=\"tob\",tenant=~\"acme|northwind\"}\n)\n/\nclamp_min(\n  sum by (cluster, tenant, business_line, service_name, plan) (\n    business_seats_limit{business_line=\"tob\",tenant=~\"acme|northwind\"}\n  ),\n  1\n)\n) > 0.9"
+      },
+      {
+        "name": "TobApiQuotaHigh",
+        "pending": "10m",
+        "summary": "ToB API quota utilization is above 90%",
+        "expr": "(\nsum by (cluster, tenant, business_line, service_name, quota_class) (\n  business_api_quota_used{business_line=\"tob\",tenant=~\"acme|northwind\"}\n)\n/\nclamp_min(\n  sum by (cluster, tenant, business_line, service_name, quota_class) (\n    business_api_quota_limit{business_line=\"tob\",tenant=~\"acme|northwind\"}\n  ),\n  1\n)\n) > 0.9"
+      }
+    ]
+  }
+}

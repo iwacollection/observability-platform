@@ -1,0 +1,236 @@
+// Kubernetes DaemonSet agent for the central cluster.
+// Workload clusters mount config/alloy/config.workload.alloy instead.
+// Requires NODE_NAME from the downward API (spec.nodeName).
+// CLUSTER_NAME, PROMETHEUS_REMOTE_WRITE_URL, and LOKI_PUSH_URL come from
+// the observability-endpoints ConfigMap. On the central stack those values
+// are cluster=local and the in-cluster Service DNS names.
+// Host metrics use /host/proc, /host/sys, /host/root.
+// Pod logs are read through the API and limited to this node so DaemonSet
+// replicas do not duplicate streams. Labels are namespace, pod, container,
+// and app. Do not add pod uid.
+// cAdvisor is scraped through the API server proxy, using the ServiceAccount
+// token and cluster CA. No kubelet TLS skip is required.
+// job=node for node_exporter is scraped by Prometheus in this cluster
+// (one Service). Workload clusters scrape it themselves.
+
+prometheus.exporter.unix "node" {
+	procfs_path = "/host/proc"
+	sysfs_path  = "/host/sys"
+	rootfs_path = "/host/root"
+}
+
+// job alloy-unix is the agent copy. The node_exporter DaemonSet is scraped
+// by Prometheus as job="node". Do not set this job_name back to "node".
+prometheus.scrape "node" {
+	targets         = prometheus.exporter.unix.node.targets
+	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	scrape_interval = "15s"
+	job_name        = "alloy-unix"
+}
+
+discovery.kubernetes "nodes" {
+	role = "node"
+}
+
+discovery.relabel "cadvisor" {
+	targets = discovery.kubernetes.nodes.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_node_name"]
+		regex         = sys.env("NODE_NAME")
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_node_name"]
+		regex         = "(.+)"
+		replacement   = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+		target_label  = "__metrics_path__"
+	}
+
+	rule {
+		replacement  = "kubernetes.default.svc.cluster.local:443"
+		target_label = "__address__"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_node_name"]
+		target_label  = "node"
+	}
+}
+
+// Before: forward_to = [prometheus.remote_write.prometheus.receiver]
+// That kept cAdvisor's id / container_id / image_id labels, one series per
+// container runtime id. After: drop those label names before remote write.
+prometheus.relabel "cadvisor_labels" {
+	forward_to = [prometheus.remote_write.prometheus.receiver]
+
+	rule {
+		regex  = "id|container_id|image_id"
+		action = "labeldrop"
+	}
+}
+
+prometheus.scrape "cadvisor" {
+	targets         = discovery.relabel.cadvisor.output
+	forward_to      = [prometheus.relabel.cadvisor_labels.receiver]
+	scrape_interval = "30s"
+	scheme          = "https"
+	job_name        = "cadvisor"
+
+	authorization {
+		type             = "Bearer"
+		credentials_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	}
+
+	tls_config {
+		ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	}
+}
+
+// Kubernetes-only. Compose does not run kube-state-metrics.
+prometheus.scrape "kube_state" {
+	targets = [{
+		__address__ = "kube-state-metrics:8080",
+	}]
+	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	scrape_interval = "30s"
+	job_name        = "kube-state-metrics"
+}
+
+prometheus.remote_write "prometheus" {
+	endpoint {
+		url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+
+		authorization {
+			type        = "Bearer"
+			credentials = sys.env("INGEST_TOKEN")
+		}
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
+	}
+}
+
+discovery.kubernetes "pods" {
+	role = "pod"
+}
+
+discovery.relabel "pod_logs" {
+	targets = discovery.kubernetes.pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_node_name"]
+		regex         = sys.env("NODE_NAME")
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_name"]
+		target_label  = "pod"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_container_name"]
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+		target_label  = "app"
+	}
+
+	// Org and tenant come from pod labels written by the tenancy catalog.
+	// Values outside the allow-list are dropped so a user id cannot open a
+	// Loki tenant. Missing labels land in the platform org.
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_org_id"]
+		regex         = "toc|tob-acme|tob-northwind|platform"
+		target_label  = "org_id"
+	}
+
+	rule {
+		source_labels = ["org_id"]
+		regex         = "^$"
+		replacement   = "platform"
+		target_label  = "org_id"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_tenant"]
+		regex         = "consumer|acme|northwind"
+		target_label  = "tenant"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_business_line"]
+		regex         = "toc|tob"
+		target_label  = "business_line"
+	}
+}
+
+loki.process "org" {
+	forward_to = [loki.write.default.receiver]
+
+	stage.tenant {
+		label = "org_id"
+	}
+}
+
+loki.source.kubernetes "pod_logs" {
+	targets    = discovery.relabel.pod_logs.output
+	forward_to = [loki.process.org.receiver]
+}
+
+// Do not set endpoint tenant_id here. stage.tenant supplies X-Scope-OrgID
+// per stream. A static tenant_id would override that and mix orgs.
+loki.write "default" {
+	endpoint {
+		url = sys.env("LOKI_PUSH_URL")
+
+		authorization {
+			type        = "Bearer"
+			credentials = sys.env("INGEST_TOKEN")
+		}
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
+	}
+}
+
+otelcol.receiver.otlp "apps" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		metrics = [otelcol.exporter.otlp.gateway.input]
+		logs    = [otelcol.exporter.otlp.gateway.input]
+		traces  = [otelcol.exporter.otlp.gateway.input]
+	}
+}
+
+otelcol.exporter.otlp "gateway" {
+	client {
+		endpoint = "otel-collector:4317"
+
+		headers = {
+			"authorization" = "Bearer " + sys.env("INGEST_TOKEN"),
+		}
+
+		tls {
+			insecure = true
+		}
+	}
+}
