@@ -18,21 +18,21 @@ groups:
       - alert: CollectorExportFailures
         expr: |
           (
-            sum(rate(otelcol_exporter_send_failed_spans_total[5m]))
+            sum by (cluster) (rate(otelcol_exporter_send_failed_spans_total[5m]))
             or
-            sum(rate(otelcol_exporter_send_failed_spans[5m]))
+            sum by (cluster) (rate(otelcol_exporter_send_failed_spans[5m]))
           ) > 0
           or
           (
-            sum(rate(otelcol_exporter_send_failed_metric_points_total[5m]))
+            sum by (cluster) (rate(otelcol_exporter_send_failed_metric_points_total[5m]))
             or
-            sum(rate(otelcol_exporter_send_failed_metric_points[5m]))
+            sum by (cluster) (rate(otelcol_exporter_send_failed_metric_points[5m]))
           ) > 0
           or
           (
-            sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))
+            sum by (cluster) (rate(otelcol_exporter_send_failed_log_records_total[5m]))
             or
-            sum(rate(otelcol_exporter_send_failed_log_records[5m]))
+            sum by (cluster) (rate(otelcol_exporter_send_failed_log_records[5m]))
           ) > 0
         for: 5m
         labels:
@@ -45,27 +45,27 @@ groups:
       - alert: CollectorRefusedData
         expr: |
           (
-            sum(rate(otelcol_receiver_refused_spans_total[5m]))
+            sum by (cluster) (rate(otelcol_receiver_refused_spans_total[5m]))
             or
-            sum(rate(otelcol_receiver_refused_spans[5m]))
+            sum by (cluster) (rate(otelcol_receiver_refused_spans[5m]))
           ) > 0
           or
           (
-            sum(rate(otelcol_processor_dropped_spans_total[5m]))
+            sum by (cluster) (rate(otelcol_processor_dropped_spans_total[5m]))
             or
-            sum(rate(otelcol_processor_dropped_spans[5m]))
+            sum by (cluster) (rate(otelcol_processor_dropped_spans[5m]))
           ) > 0
           or
           (
-            sum(rate(otelcol_processor_dropped_metric_points_total[5m]))
+            sum by (cluster) (rate(otelcol_processor_dropped_metric_points_total[5m]))
             or
-            sum(rate(otelcol_processor_dropped_metric_points[5m]))
+            sum by (cluster) (rate(otelcol_processor_dropped_metric_points[5m]))
           ) > 0
           or
           (
-            sum(rate(otelcol_processor_dropped_log_records_total[5m]))
+            sum by (cluster) (rate(otelcol_processor_dropped_log_records_total[5m]))
             or
-            sum(rate(otelcol_processor_dropped_log_records[5m]))
+            sum by (cluster) (rate(otelcol_processor_dropped_log_records[5m]))
           ) > 0
         for: 5m
         labels:
@@ -78,12 +78,12 @@ groups:
       - alert: CollectorExporterQueueNearFull
         expr: |
           (
-            sum by (exporter) (otelcol_exporter_queue_size)
+            sum by (cluster, exporter) (otelcol_exporter_queue_size)
             /
-            sum by (exporter) (otelcol_exporter_queue_capacity)
+            sum by (cluster, exporter) (otelcol_exporter_queue_capacity)
           ) > 0.8
           and
-          sum by (exporter) (otelcol_exporter_queue_capacity) > 0
+          sum by (cluster, exporter) (otelcol_exporter_queue_capacity) > 0
         for: 10m
         labels:
           severity: warning
@@ -123,7 +123,7 @@ groups:
 
       - alert: NodeCPUSaturation
         expr: |
-          (1 - avg by (instance) (rate(node_cpu_seconds_total{job="node",mode="idle"}[5m]))) > 0.85
+          (1 - avg by (cluster, instance) (rate(node_cpu_seconds_total{job="node",mode="idle"}[5m]))) > 0.85
         for: 10m
         labels:
           severity: warning
@@ -152,8 +152,8 @@ groups:
       - alert: NodeLoadHigh
         expr: |
           node_load1{job="node"}
-          /
-          count by (instance) (node_cpu_seconds_total{job="node",mode="idle"})
+          / on(cluster, instance) group_left()
+          count by (cluster, instance) (node_cpu_seconds_total{job="node",mode="idle"})
           > 2
         for: 15m
         labels:
@@ -227,7 +227,7 @@ groups:
           description: "{{ $labels.instance }} is close to maxmemory. Evictions or rejected writes follow."
 
       - alert: RedisRejectedConnections
-        expr: sum by (instance) (rate(redis_rejected_connections_total[5m])) > 0
+        expr: sum by (cluster, instance) (rate(redis_rejected_connections_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
@@ -248,9 +248,9 @@ groups:
 
       - alert: PostgresConnectionSaturation
         expr: |
-          sum(pg_stat_database_numbackends)
+          sum by (cluster) (pg_stat_database_numbackends)
           /
-          clamp_min(max(pg_settings_max_connections), 1)
+          clamp_min(max by (cluster) (pg_settings_max_connections), 1)
           > 0.8
         for: 10m
         labels:
@@ -263,17 +263,17 @@ groups:
       - alert: PostgresRollbackRatio
         expr: |
           (
-            sum by (datname) (rate(pg_stat_database_xact_rollback[5m]))
+            sum by (cluster, datname) (rate(pg_stat_database_xact_rollback[5m]))
             /
             clamp_min(
-              sum by (datname) (rate(pg_stat_database_xact_commit[5m]))
+              sum by (cluster, datname) (rate(pg_stat_database_xact_commit[5m]))
               +
-              sum by (datname) (rate(pg_stat_database_xact_rollback[5m])),
+              sum by (cluster, datname) (rate(pg_stat_database_xact_rollback[5m])),
               1e-9
             )
           ) > 0.1
           and
-          sum by (datname) (rate(pg_stat_database_xact_rollback[5m])) > 0
+          sum by (cluster, datname) (rate(pg_stat_database_xact_rollback[5m])) > 0
         for: 10m
         labels:
           severity: warning
@@ -295,9 +295,9 @@ groups:
       - alert: NginxDroppedConnections
         expr: |
           (
-            sum(rate(nginx_connections_accepted[5m]))
+            sum by (cluster) (rate(nginx_connections_accepted[5m]))
             -
-            sum(rate(nginx_connections_handled[5m]))
+            sum by (cluster) (rate(nginx_connections_handled[5m]))
           ) > 0
         for: 5m
         labels:
@@ -318,7 +318,7 @@ groups:
           description: "{{ $labels.instance }} reports kafka_brokers below 1."
 
       - alert: KafkaConsumerLagHigh
-        expr: sum by (consumergroup, topic) (kafka_consumergroup_lag) > 10000
+        expr: sum by (cluster, consumergroup, topic) (kafka_consumergroup_lag) > 10000
         for: 10m
         labels:
           severity: warning
@@ -332,16 +332,16 @@ groups:
       - alert: HighErrorRate
         expr: |
           (
-            sum by (service_name) (
+            sum by (cluster, service_name) (
               rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[5m])
             )
             /
-            sum by (service_name) (
+            sum by (cluster, service_name) (
               rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
             )
           ) > 0.05
           and
-          sum by (service_name) (
+          sum by (cluster, service_name) (
             rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
           ) > 0.1
         for: 5m
@@ -356,7 +356,7 @@ groups:
         expr: |
           histogram_quantile(
             0.95,
-            sum by (service_name, le) (
+            sum by (cluster, service_name, le) (
               rate(http_server_request_duration_seconds_bucket{http_route!="/healthz"}[5m])
             )
           ) > 0.5
@@ -369,7 +369,7 @@ groups:
           description: "{{ $labels.service_name }} p95 latency is {{ $value | humanizeDuration }}."
 
       - alert: AppInFlightSaturation
-        expr: sum by (service_name) (http_server_active_requests) > 100
+        expr: sum by (cluster, service_name) (http_server_active_requests) > 100
         for: 5m
         labels:
           severity: warning
@@ -379,7 +379,7 @@ groups:
           description: "{{ $labels.service_name }} has more than 100 in-flight requests."
 
       - alert: AppProcessCPUSaturation
-        expr: max by (service_name) (process_runtime_cpython_cpu_utilization_ratio) > 0.9
+        expr: max by (cluster, service_name) (process_runtime_cpython_cpu_utilization_ratio) > 0.9
         for: 10m
         labels:
           severity: warning
@@ -393,12 +393,12 @@ groups:
       - alert: BusinessPaymentFailureRatio
         expr: |
           (
-            sum by (service_name) (rate(business_payments_total{result="failure"}[5m]))
+            sum by (cluster, service_name) (rate(business_payments_total{result="failure"}[5m]))
             /
-            sum by (service_name) (rate(business_payments_total[5m]))
+            sum by (cluster, service_name) (rate(business_payments_total[5m]))
           ) > 0.1
           and
-          sum by (service_name) (rate(business_payments_total[5m])) > 0.05
+          sum by (cluster, service_name) (rate(business_payments_total[5m])) > 0.05
         for: 5m
         labels:
           severity: warning
@@ -423,7 +423,7 @@ groups:
   - name: meta-pipeline
     rules:
       - alert: PrometheusRuleEvalFailures
-        expr: sum(rate(prometheus_rule_evaluation_failures_total[5m])) > 0
+        expr: sum by (cluster) (rate(prometheus_rule_evaluation_failures_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
@@ -443,7 +443,7 @@ groups:
           description: "TSDB head series crossed 200000. Look for a new label before raising the limit."
 
       - alert: PrometheusSeriesChurn
-        expr: sum(rate(prometheus_tsdb_head_series_created_total[10m])) > 50
+        expr: sum by (cluster) (rate(prometheus_tsdb_head_series_created_total[10m])) > 50
         for: 15m
         labels:
           severity: warning
@@ -453,7 +453,7 @@ groups:
           description: "New series are being created faster than 50/s over 10 minutes."
 
       - alert: LokiSamplesDiscarded
-        expr: sum by (reason) (rate(loki_discarded_samples_total[5m])) > 0
+        expr: sum by (cluster, reason) (rate(loki_discarded_samples_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
@@ -463,7 +463,7 @@ groups:
           description: "Loki discard reason {{ $labels.reason }} is non-zero."
 
       - alert: LokiStreamChurn
-        expr: sum(rate(loki_ingester_streams_created_total[10m])) > 50
+        expr: sum by (cluster) (rate(loki_ingester_streams_created_total[10m])) > 50
         for: 10m
         labels:
           severity: warning
@@ -473,7 +473,7 @@ groups:
           description: "New log streams exceed 50/s. A label value is probably unbounded."
 
       - alert: TempoSpansDiscarded
-        expr: sum by (reason) (rate(tempo_discarded_spans_total[5m])) > 0
+        expr: sum by (cluster, reason) (rate(tempo_discarded_spans_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
@@ -483,7 +483,7 @@ groups:
           description: "Tempo discard reason {{ $labels.reason }} is non-zero."
 
       - alert: PyroscopeSamplesDiscarded
-        expr: sum by (reason) (rate(pyroscope_discarded_samples_total[5m])) > 0
+        expr: sum by (cluster, reason) (rate(pyroscope_discarded_samples_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
@@ -493,7 +493,7 @@ groups:
           description: "Pyroscope discard reason {{ $labels.reason }} is non-zero."
 
       - alert: AlloyRemoteWriteFailures
-        expr: sum(rate(prometheus_remote_storage_samples_failed_total{job="alloy"}[5m])) > 0
+        expr: sum by (cluster) (rate(prometheus_remote_storage_samples_failed_total{job="alloy"}[5m])) > 0
         for: 5m
         labels:
           severity: warning

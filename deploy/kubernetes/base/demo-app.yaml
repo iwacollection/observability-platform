@@ -35,6 +35,11 @@ spec:
               value: http://pyroscope:4040
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
             - name: DEMO_LISTEN_ADDR
               value: 0.0.0.0:8080
             - name: OTEL_METRIC_EXPORT_INTERVAL

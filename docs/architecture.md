@@ -18,7 +18,7 @@
 
 本地 Docker Compose 和 Kubernetes 使用同一批 `config/` 文件。两边的服务名保持一致（`prometheus`、`loki`、`tempo`、`pyroscope`、`otel-collector`、`alertmanager`、`grafana`、`alloy`、`demo-app`），所以配置里的 DNS 不用分两份。
 
-Alloy 是唯一按环境拆开的配置：`config/alloy/config.alloy` 给 Compose，`config/alloy/config.k8s.alloy` 给 DaemonSet。远端地址相同，差别只在服务发现。
+Alloy 按环境拆开三份，管道相同：`config/alloy/config.alloy` 给 Compose，`config/alloy/config.k8s.alloy` 给中心集群 DaemonSet，`config/alloy/config.workload.alloy` 给工作负载集群。远端地址和 `cluster` 标签都来自环境变量，差别在服务发现。工作负载集群没有本地 Prometheus，所以由 agent 自己抓本节点的 node-exporter。
 
 ## 数据流
 
@@ -66,6 +66,8 @@ flowchart LR
 - Profile 的 `service_name` 标签和 trace 的 `service.name` 对齐，Tempo 数据源因此能跳到 Pyroscope。
 
 `/healthz` 会打点和打 span，但记录规则和 SLO 告警把它排除在外，避免探针稀释错误预算。
+
+中心栈和 Compose 的 `cluster` 标签是 `local`。工作负载集群在离开本集群之前把同一个标签写成自己的名字。细节在 [multi-cluster.md](multi-cluster.md)。
 
 ## 不在这套单机拓扑里的东西
 

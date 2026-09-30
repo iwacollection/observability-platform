@@ -57,7 +57,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "redis_up",
+          "expr": "redis_up{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -98,7 +98,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "pg_up",
+          "expr": "pg_up{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -139,7 +139,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "nginx_up",
+          "expr": "nginx_up{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kafka_brokers",
+          "expr": "kafka_brokers{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -222,7 +222,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "redis:memory_utilization:ratio",
+          "expr": "redis:memory_utilization:ratio{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -264,7 +264,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "redis:commands:rate5m",
+          "expr": "redis:commands:rate5m{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -306,7 +306,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "postgres:connections:ratio",
+          "expr": "postgres:connections:ratio{cluster=\"$cluster\"}",
           "legendFormat": "connections"
         }
       ]
@@ -348,7 +348,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (datname) (rate(pg_stat_database_xact_commit[5m]))",
+          "expr": "sum by (datname) (rate(pg_stat_database_xact_commit{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "commit {{datname}}"
         }
       ]
@@ -390,7 +390,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "nginx:requests:rate5m",
+          "expr": "nginx:requests:rate5m{cluster=\"$cluster\"}",
           "legendFormat": "requests"
         }
       ]
@@ -432,7 +432,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "nginx_connections_active",
+          "expr": "nginx_connections_active{cluster=\"$cluster\"}",
           "legendFormat": "active"
         }
       ]
@@ -474,7 +474,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "kafka:consumergroup_lag:sum",
+          "expr": "kafka:consumergroup_lag:sum{cluster=\"$cluster\"}",
           "legendFormat": "{{consumergroup}} {{topic}}"
         }
       ]
@@ -516,14 +516,47 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(redis_rejected_connections_total[5m]))",
+          "expr": "sum(rate(redis_rejected_connections_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "rejected"
         }
       ]
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(cluster)",
+        "query": {
+          "query": "label_values(cluster)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "regex": "",
+        "current": {
+          "selected": true,
+          "text": "local",
+          "value": "local"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "local",
+            "value": "local"
+          }
+        ]
+      }
+    ]
   },
   "annotations": {
     "list": []

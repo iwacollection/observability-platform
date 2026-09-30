@@ -6,7 +6,7 @@
 
 ## 1. 基础监控
 
-来源：`prom/node-exporter:v1.9.1`，Prometheus job `node`，目标 `node-exporter:9100`。Alloy 的 unix exporter 另写一份，job 是 `alloy-unix`，仪表盘和告警不用它，避免把同一台机器算两次。Kubernetes 上 cAdvisor 由 `config/alloy/config.k8s.alloy` 抓取，job `cadvisor`。对象健康由 kube-state-metrics v2.16.0 提供，job `kube-state-metrics`，只在 Kubernetes 上由 Alloy 远程写入。
+来源：`prom/node-exporter:v1.9.1`，Prometheus job `node`。Compose 和中心集群的目标是 `node-exporter:9100`。工作负载集群没有中心 Prometheus 可抓，由 `config/alloy/config.workload.alloy` 按节点抓取后远程写入，instance 是节点名。Alloy 的 unix exporter 另写一份，job 是 `alloy-unix`，仪表盘和告警不用它，避免把同一台机器算两次。Kubernetes 上 cAdvisor 由 Alloy 抓取，job `cadvisor`。对象健康由 kube-state-metrics v2.16.0 提供，job `kube-state-metrics`，只在 Kubernetes 上由 Alloy 远程写入。这些序列都带 `cluster`。
 
 | 指标 | 类型 | 标签 | 来源 | 示例 PromQL | 告警 | 仪表盘 |
 | --- | --- | --- | --- | --- | --- | --- |

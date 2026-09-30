@@ -1,7 +1,7 @@
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 COMPOSE := docker compose -f $(ROOT)/deploy/docker-compose/docker-compose.yml
 
-.PHONY: up down restart ps logs config-check lint test load kustomize-build
+.PHONY: up down restart ps logs config-check lint test load kustomize-build terraform-check
 
 up:
 	$(COMPOSE) up -d --build
@@ -19,6 +19,9 @@ logs:
 
 config-check:
 	bash $(ROOT)/scripts/config-check.sh
+
+terraform-check:
+	bash $(ROOT)/scripts/terraform-check.sh
 
 lint: config-check
 

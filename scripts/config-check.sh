@@ -72,6 +72,16 @@ for path in root.rglob("*.json"):
         for key in ("uid", "title", "schemaVersion", "panels"):
             if key not in data:
                 errors.append(f"{path}: missing {key}")
+        if path.name in {
+            "infrastructure.json", "middleware.json", "application.json",
+            "business.json", "meta.json",
+        }:
+            names = [item.get("name") for item in data.get("templating", {}).get("list", [])]
+            if "cluster" not in names:
+                errors.append(f"{path}: missing cluster template variable")
+            blob = json.dumps(data)
+            if 'cluster=\\"$cluster\\"' not in blob and 'cluster="$cluster"' not in blob:
+                errors.append(f"{path}: queries do not filter cluster")
         for panel in data.get("panels", []):
             ds = panel.get("datasource") or {}
             if isinstance(ds, dict) and ds.get("uid") not in {
@@ -88,9 +98,15 @@ note "alloy syntax"
 if command -v alloy >/dev/null 2>&1; then
   alloy fmt --test "$root/config/alloy/config.alloy" || die "alloy fmt local"
   alloy fmt --test "$root/config/alloy/config.k8s.alloy" || die "alloy fmt k8s"
+  alloy fmt --test "$root/config/alloy/config.workload.alloy" || die "alloy fmt workload"
+  # Remote-write URLs and the cluster label are read from the environment.
+  export CLUSTER_NAME=local
+  export PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
+  export LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
   alloy validate "$root/config/alloy/config.alloy" || die "alloy validate local"
   # Kubernetes config reads NODE_NAME at runtime. Validate with it set.
   NODE_NAME=validate-node alloy validate "$root/config/alloy/config.k8s.alloy" || die "alloy validate k8s"
+  NODE_NAME=validate-node alloy validate "$root/config/alloy/config.workload.alloy" || die "alloy validate workload"
 else
   warn "alloy binary not found; skipped river validation"
 fi
@@ -133,6 +149,7 @@ if command -v kustomize >/dev/null 2>&1; then
   # root so Compose and Kubernetes share one file. That requires this flag.
   kustomize build --load-restrictor LoadRestrictionsNone "$root/deploy/kubernetes/overlays/dev" >/tmp/observability-dev.yaml || die "kustomize dev"
   kustomize build --load-restrictor LoadRestrictionsNone "$root/deploy/kubernetes/overlays/prod" >/tmp/observability-prod.yaml || die "kustomize prod"
+  kustomize build --load-restrictor LoadRestrictionsNone "$root/deploy/kubernetes/agent" >/tmp/observability-agent.yaml || die "kustomize agent"
   python3 - <<'PY'
 from pathlib import Path
 text = Path("/tmp/observability-dev.yaml").read_text()
@@ -162,6 +179,22 @@ needles = [
 missing = [n for n in needles if n not in text]
 if missing:
     raise SystemExit("kustomize output missing: " + ", ".join(missing))
+if "CLUSTER_NAME: local" not in text:
+    raise SystemExit("central overlay missing CLUSTER_NAME=local endpoints")
+agent = Path("/tmp/observability-agent.yaml").read_text()
+missing_agent = [n for n in (
+    "kind: DaemonSet",
+    "otel-collector",
+    "node-exporter",
+    "kube-state-metrics",
+    "observability-endpoints",
+    'prometheus.scrape \\"node_exporter\\"',
+    "external_labels",
+) if n not in agent]
+if "\n  name: prometheus\n" in agent:
+    missing_agent.append("agent overlay includes central prometheus")
+if missing_agent:
+    raise SystemExit("agent overlay problem: " + ", ".join(missing_agent))
 print("kustomize overlays rendered")
 PY
   python3 - <<'PY'
@@ -201,6 +234,9 @@ fi
 note "demo unit tests"
 PYTHONPATH="$root/examples/demo-app/src" python3 -m unittest discover -s "$root/examples/demo-app/tests" -q || die "demo unit tests"
 python3 -m compileall -q "$root/examples/demo-app/src" || die "compileall"
+
+note "terraform"
+bash "$root/scripts/terraform-check.sh" || die "terraform validate"
 
 if [[ "$fail" -ne 0 ]]; then
   echo "config-check failed" >&2

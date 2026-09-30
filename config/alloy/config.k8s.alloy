@@ -1,11 +1,17 @@
-// Kubernetes DaemonSet agent.
+// Kubernetes DaemonSet agent for the central cluster.
+// Workload clusters mount config/alloy/config.workload.alloy instead.
 // Requires NODE_NAME from the downward API (spec.nodeName).
+// CLUSTER_NAME, PROMETHEUS_REMOTE_WRITE_URL, and LOKI_PUSH_URL come from
+// the observability-endpoints ConfigMap. On the central stack those values
+// are cluster=local and the in-cluster Service DNS names.
 // Host metrics use /host/proc, /host/sys, /host/root.
 // Pod logs are read through the API and limited to this node so DaemonSet
-// replicas do not duplicate streams.
+// replicas do not duplicate streams. Labels are namespace, pod, container,
+// and app. Do not add pod uid.
 // cAdvisor is scraped through the API server proxy, using the ServiceAccount
 // token and cluster CA. No kubelet TLS skip is required.
-// Remote-write URL matches config/alloy/config.alloy.
+// job=node for node_exporter is scraped by Prometheus in this cluster
+// (one Service). Workload clusters scrape it themselves.
 
 prometheus.exporter.unix "node" {
 	procfs_path = "/host/proc"
@@ -94,7 +100,11 @@ prometheus.scrape "kube_state" {
 
 prometheus.remote_write "prometheus" {
 	endpoint {
-		url = "http://prometheus:9090/api/v1/write"
+		url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
 	}
 }
 
@@ -139,7 +149,11 @@ loki.source.kubernetes "pod_logs" {
 
 loki.write "default" {
 	endpoint {
-		url = "http://loki:3100/loki/api/v1/push"
+		url = sys.env("LOKI_PUSH_URL")
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
 	}
 }
 

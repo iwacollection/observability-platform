@@ -1,7 +1,9 @@
-# Host metrics source for job="node". One Service in front of the DaemonSet
-# matches this repository's single-node topology. On more than one node,
-# scrape via Kubernetes service discovery instead of the static target in
-# config/prometheus/prometheus.yml so each node keeps its own series.
+# Host metrics source for job="node" on the central stack. One Service in
+# front of the DaemonSet matches Compose and a single-node central cluster:
+# Prometheus scrapes node-exporter:9100. Workload clusters do not run
+# Prometheus; config/alloy/config.workload.alloy scrapes the pod on each
+# node and remote-writes job=node with that cluster's label. The instance
+# label there is the node name, not the pod IP.
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

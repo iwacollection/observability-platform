@@ -73,6 +73,8 @@ limits_config:
             - service.instance.id
             - deployment.environment
             - deployment.environment.name
+            # One value per cluster. Do not index pod uid, user id, or trace id.
+            - cluster
 
 compactor:
   working_directory: /loki/compactor

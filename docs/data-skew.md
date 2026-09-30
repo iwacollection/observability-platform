@@ -98,7 +98,7 @@ sum(rate(loki_ingester_streams_created_total[10m]))
 
 ## 租户或服务不均
 
-Prometheus 的 `external_labels.cluster` 是 `observability`，没有多租户。服务不均看：
+`cluster` 是低基数身份标签，一个集群一个值。中心栈和 Compose 把它写成 `local`。它不是租户系统，Loki 仍然是 `auth_enabled: false` 的单租户。跨集群的倾斜是某一个 `cluster` 的序列或日志流把中心存储撑满，其它集群的查询还在。看 `count by (cluster) ({__name__=~".+"})` 之前先缩短时间范围。不要把 pod uid 或用户 id 加进 `cluster` 旁边。服务不均看：
 
 ```promql
 topk(5, sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])))

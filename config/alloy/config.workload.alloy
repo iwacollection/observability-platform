@@ -1,0 +1,229 @@
+// Workload-cluster DaemonSet agent.
+// The central cluster uses config/alloy/config.k8s.alloy. This file is the
+// same pipeline, plus a per-node node_exporter scrape, because the workload
+// cluster does not run Prometheus.
+//
+// Requires NODE_NAME from the downward API (spec.nodeName).
+// CLUSTER_NAME, PROMETHEUS_REMOTE_WRITE_URL, and LOKI_PUSH_URL come from
+// the observability-endpoints ConfigMap. Terraform sets CLUSTER_NAME to the
+// workload cluster name and the URLs to the central stack. There is no
+// central Prometheus inside this cluster to scrape job=node.
+//
+// Host metrics use /host/proc, /host/sys, /host/root (job alloy-unix).
+// node_exporter is scraped on this node only, job=node, instance=node name
+// so a pod restart does not create a new series. Do not add pod uid.
+// Pod log labels are namespace, pod, container, and app.
+// cAdvisor drops id, container_id, and image_id before remote write.
+// cAdvisor uses the API server proxy, the ServiceAccount token, and the
+// cluster CA. No kubelet TLS skip is required.
+
+prometheus.exporter.unix "node" {
+	procfs_path = "/host/proc"
+	sysfs_path  = "/host/sys"
+	rootfs_path = "/host/root"
+}
+
+// job alloy-unix is the agent copy of host metrics. Dashboards read
+// job="node" from the node_exporter scrape below. Do not rename this job.
+prometheus.scrape "node" {
+	targets         = prometheus.exporter.unix.node.targets
+	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	scrape_interval = "15s"
+	job_name        = "alloy-unix"
+}
+
+discovery.kubernetes "nodes" {
+	role = "node"
+}
+
+discovery.relabel "cadvisor" {
+	targets = discovery.kubernetes.nodes.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_node_name"]
+		regex         = sys.env("NODE_NAME")
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_node_name"]
+		regex         = "(.+)"
+		replacement   = "/api/v1/nodes/$1/proxy/metrics/cadvisor"
+		target_label  = "__metrics_path__"
+	}
+
+	rule {
+		replacement  = "kubernetes.default.svc.cluster.local:443"
+		target_label = "__address__"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_node_name"]
+		target_label  = "node"
+	}
+}
+
+// Before: forward_to = [prometheus.remote_write.prometheus.receiver]
+// That kept cAdvisor's id / container_id / image_id labels, one series per
+// container runtime id. After: drop those label names before remote write.
+prometheus.relabel "cadvisor_labels" {
+	forward_to = [prometheus.remote_write.prometheus.receiver]
+
+	rule {
+		regex  = "id|container_id|image_id"
+		action = "labeldrop"
+	}
+}
+
+prometheus.scrape "cadvisor" {
+	targets         = discovery.relabel.cadvisor.output
+	forward_to      = [prometheus.relabel.cadvisor_labels.receiver]
+	scrape_interval = "30s"
+	scheme          = "https"
+	job_name        = "cadvisor"
+
+	authorization {
+		type             = "Bearer"
+		credentials_file = "/var/run/secrets/kubernetes.io/serviceaccount/token"
+	}
+
+	tls_config {
+		ca_file = "/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+	}
+}
+
+// One series set per node. instance is the node name, not the pod IP, so
+// a DaemonSet restart does not churn the label. pod uid is not copied.
+discovery.kubernetes "node_exporter" {
+	role = "pod"
+}
+
+discovery.relabel "node_exporter" {
+	targets = discovery.kubernetes.node_exporter.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+		regex         = "node-exporter"
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_node_name"]
+		regex         = sys.env("NODE_NAME")
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_ip"]
+		regex         = "(.+)"
+		replacement   = "$1:9100"
+		target_label  = "__address__"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_node_name"]
+		target_label  = "instance"
+	}
+}
+
+prometheus.scrape "node_exporter" {
+	targets         = discovery.relabel.node_exporter.output
+	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	scrape_interval = "15s"
+	job_name        = "node"
+}
+
+// Kubernetes-only. Compose does not run kube-state-metrics.
+prometheus.scrape "kube_state" {
+	targets = [{
+		__address__ = "kube-state-metrics:8080",
+	}]
+	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	scrape_interval = "30s"
+	job_name        = "kube-state-metrics"
+}
+
+prometheus.remote_write "prometheus" {
+	endpoint {
+		url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
+	}
+}
+
+discovery.kubernetes "pods" {
+	role = "pod"
+}
+
+discovery.relabel "pod_logs" {
+	targets = discovery.kubernetes.pods.targets
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_node_name"]
+		regex         = sys.env("NODE_NAME")
+		action        = "keep"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_namespace"]
+		target_label  = "namespace"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_name"]
+		target_label  = "pod"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_container_name"]
+		target_label  = "container"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
+		target_label  = "app"
+	}
+}
+
+loki.source.kubernetes "pod_logs" {
+	targets    = discovery.relabel.pod_logs.output
+	forward_to = [loki.write.default.receiver]
+}
+
+loki.write "default" {
+	endpoint {
+		url = sys.env("LOKI_PUSH_URL")
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
+	}
+}
+
+otelcol.receiver.otlp "apps" {
+	grpc {
+		endpoint = "0.0.0.0:4317"
+	}
+
+	http {
+		endpoint = "0.0.0.0:4318"
+	}
+
+	output {
+		metrics = [otelcol.exporter.otlp.gateway.input]
+		logs    = [otelcol.exporter.otlp.gateway.input]
+		traces  = [otelcol.exporter.otlp.gateway.input]
+	}
+}
+
+otelcol.exporter.otlp "gateway" {
+	client {
+		endpoint = "otel-collector:4317"
+
+		tls {
+			insecure = true
+		}
+	}
+}

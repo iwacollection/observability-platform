@@ -144,6 +144,7 @@ def setup_telemetry(logger: logging.Logger) -> Telemetry:
 
     service_name = os.environ.get("OTEL_SERVICE_NAME", "demo-app")
     environment = os.environ.get("DEPLOYMENT_ENVIRONMENT", "local")
+    cluster = os.environ.get("CLUSTER_NAME", "local")
     endpoint, insecure = grpc_target(
         os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
     )
@@ -159,6 +160,7 @@ def setup_telemetry(logger: logging.Logger) -> Telemetry:
             "service.version": os.environ.get("DEMO_VERSION", "0.1.0"),
             "service.instance.id": socket.gethostname(),
             "deployment.environment": environment,
+            "cluster": cluster,
         }
     )
 
@@ -237,7 +239,7 @@ def setup_telemetry(logger: logging.Logger) -> Telemetry:
     otel_handler.setFormatter(JsonFormatter())
     logger.addHandler(otel_handler)
 
-    _configure_pyroscope(logger, service_name, environment)
+    _configure_pyroscope(logger, service_name, environment, cluster)
     return Telemetry(trace.get_tracer("demo-app"), histogram, active, business)
 
 
@@ -250,7 +252,7 @@ def _configure_process_metrics(logger: logging.Logger) -> None:
         logger.warning("process runtime metrics disabled: %s", exc)
 
 
-def _configure_pyroscope(logger: logging.Logger, service_name: str, environment: str) -> None:
+def _configure_pyroscope(logger: logging.Logger, service_name: str, environment: str, cluster: str) -> None:
     address = os.environ.get("PYROSCOPE_SERVER_ADDRESS", "").strip()
     if not address:
         return
@@ -263,6 +265,7 @@ def _configure_pyroscope(logger: logging.Logger, service_name: str, environment:
             tags={
                 "service_name": service_name,
                 "deployment_environment": environment,
+                "cluster": cluster,
             },
             enable_logging=False,
         )

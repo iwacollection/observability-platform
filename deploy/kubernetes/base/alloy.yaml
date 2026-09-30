@@ -64,6 +64,21 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: spec.nodeName
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
+            - name: PROMETHEUS_REMOTE_WRITE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PROMETHEUS_REMOTE_WRITE_URL
+            - name: LOKI_PUSH_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: LOKI_PUSH_URL
           ports:
             - name: http
               containerPort: 12345

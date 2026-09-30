@@ -5,6 +5,7 @@ kind: Kustomization
 namespace: observability
 resources:
   - namespace.yaml
+  - endpoints.yaml
   - otel-collector.yaml
   - prometheus.yaml
   - alertmanager.yaml

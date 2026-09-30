@@ -54,7 +54,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name, channel) (business:orders:created:rate5m)",
+          "expr": "sum by (service_name, channel) (business:orders:created:rate5m{cluster=\"$cluster\"})",
           "legendFormat": "{{service_name}} {{channel}}"
         }
       ]
@@ -96,7 +96,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "business:payments:success_ratio5m",
+          "expr": "business:payments:success_ratio5m{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -138,7 +138,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "business:payments:failure_ratio5m",
+          "expr": "business:payments:failure_ratio5m{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "business:checkout_duration:p95_5m",
+          "expr": "business:checkout_duration:p95_5m{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -222,7 +222,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name, result, method) (rate(business_payments_total[5m]))",
+          "expr": "sum by (service_name, result, method) (rate(business_payments_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "{{result}} {{method}}"
         }
       ]
@@ -264,14 +264,47 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "business_users_active",
+          "expr": "business_users_active{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}} {{segment}}"
         }
       ]
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(cluster)",
+        "query": {
+          "query": "label_values(cluster)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "regex": "",
+        "current": {
+          "selected": true,
+          "text": "local",
+          "value": "local"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "local",
+            "value": "local"
+          }
+        ]
+      }
+    ]
   },
   "annotations": {
     "list": []

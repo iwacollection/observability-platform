@@ -1,6 +1,12 @@
 // Local node agent. Compose mounts host /proc, /sys, and / at /host/*.
-// Kubernetes uses config/alloy/config.k8s.alloy instead: discovery differs,
-// the remote-write and Loki push URLs do not.
+// Kubernetes central nodes use config/alloy/config.k8s.alloy.
+// Workload clusters use config/alloy/config.workload.alloy, which is the
+// same pipeline with per-node node-exporter discovery.
+//
+// CLUSTER_NAME, PROMETHEUS_REMOTE_WRITE_URL, and LOKI_PUSH_URL come from
+// the process environment. Compose sets them to the local Docker DNS names
+// and cluster=local. A workload cluster sets them to the central URLs and
+// that cluster's name. The label is attached here, on the way out.
 //
 // This agent does not scrape application RED metrics. Those arrive from the
 // OpenTelemetry Collector via remote write. Pointing an app at Alloy's OTLP
@@ -23,7 +29,24 @@ prometheus.scrape "node" {
 
 prometheus.remote_write "prometheus" {
 	endpoint {
-		url = "http://prometheus:9090/api/v1/write"
+		url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
+	}
+}
+
+// Same log push the Kubernetes agent uses. Compose has no pod log source;
+// application logs go through the collector. The block stays so the local
+// agent config shows the central Loki path.
+loki.write "central" {
+	endpoint {
+		url = sys.env("LOKI_PUSH_URL")
+	}
+
+	external_labels = {
+		cluster = sys.env("CLUSTER_NAME"),
 	}
 }
 

@@ -11,6 +11,12 @@ services:
     command:
       - --config=/etc/otelcol-contrib/config.yaml
       - --feature-gates=service.profilesSupport
+    environment:
+      CLUSTER_NAME: local
+      PROMETHEUS_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
+      LOKI_OTLP_ENDPOINT: http://loki:3100/otlp
+      TEMPO_OTLP_ENDPOINT: tempo:4317
+      PYROSCOPE_OTLP_ENDPOINT: pyroscope:4040
     volumes:
       - ../../config/otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml:ro
     ports:
@@ -30,6 +36,10 @@ services:
       - --storage.path=/var/lib/alloy/data
       - --server.http.listen-addr=0.0.0.0:12345
       - --stability.level=generally-available
+    environment:
+      CLUSTER_NAME: local
+      PROMETHEUS_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
+      LOKI_PUSH_URL: http://loki:3100/loki/api/v1/push
     volumes:
       - ../../config/alloy/config.alloy:/etc/alloy/config.alloy:ro
       - alloy-data:/var/lib/alloy/data
@@ -156,6 +166,7 @@ services:
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
       DEPLOYMENT_ENVIRONMENT: local
+      CLUSTER_NAME: local
       DEMO_LISTEN_ADDR: 0.0.0.0:8080
       OTEL_METRIC_EXPORT_INTERVAL: "5000"
       OTEL_METRICS_EXEMPLAR_FILTER: trace_based

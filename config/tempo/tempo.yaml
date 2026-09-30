@@ -23,7 +23,9 @@ metrics_generator:
   registry:
     external_labels:
       source: tempo
-      cluster: observability
+      # Do not set cluster here. A constant would stamp every workload's
+      # span metrics with the same value. The cluster dimension below is
+      # copied from the trace resource attribute.
   storage:
     path: /var/tempo/generator/wal
     remote_write:
@@ -48,6 +50,15 @@ overrides:
     metrics_generator:
       processors: ["span-metrics", "service-graphs"]
       generate_native_histograms: both
+      processor:
+        span_metrics:
+          # Resource attribute set by the collector (or the SDK). Low
+          # cardinality: one value per cluster. Do not add http.route here.
+          dimensions:
+            - cluster
+        service_graphs:
+          dimensions:
+            - cluster
 
 usage_report:
   reporting_enabled: false

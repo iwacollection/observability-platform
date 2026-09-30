@@ -12,8 +12,8 @@
 
 不做什么：
 
-- 不是多副本、不是对象存储、不是跨可用区。Loki / Tempo / Pyroscope / Prometheus 都是单进程。
-- 不在组件之间做 mTLS，也不给 remote write 加鉴权。
+- 不是多副本、不是对象存储、不是跨可用区。Loki / Tempo / Pyroscope / Prometheus 都是单进程。多集群指的是多个工作负载集群把数据送到这一套中心栈，不是把中心栈拆成多副本。
+- 不在组件之间做 mTLS，也不给 remote write 加鉴权。中心端点必须放在可达的内网里，不要暴露到公网。
 - 不内置某个云厂商的托管后端，也不把上游 Helm chart 的 tarball 塞进仓库。
 - 不替代应用自己的 OpenTelemetry SDK。Collector 只负责接收和转发。
 
@@ -48,7 +48,44 @@ flowchart LR
   am --> graf
 ```
 
-更细的职责划分、标签约定和「为什么 Compose 与 Kubernetes 能共用配置」写在 [docs/architecture.md](docs/architecture.md)。
+更细的职责划分、标签约定和「为什么 Compose 与 Kubernetes 能共用配置」写在 [docs/architecture.md](docs/architecture.md)。多集群的标签合同、网络路径和排障写在 [docs/multi-cluster.md](docs/multi-cluster.md)。
+
+### 多集群
+
+一套中心栈，加上任意多个工作负载集群。工作负载集群不跑 Prometheus / Loki / Tempo / Pyroscope / Grafana。它们只跑 Alloy 和 Collector，把指标、日志、链路、Profile 送到中心端点，并带上低基数标签 `cluster`。
+
+```mermaid
+flowchart LR
+  subgraph central["中心集群 cluster=local"]
+    prom["Prometheus :9090"]
+    loki["Loki :3100"]
+    tempo["Tempo :4317"]
+    pyro["Pyroscope :4040"]
+    graf["Grafana :3000"]
+  end
+  subgraph a["工作负载 prod-a"]
+    agentA["Alloy + Collector"]
+  end
+  subgraph b["工作负载 prod-b"]
+    agentB["Alloy + Collector"]
+  end
+  agentA -->|"remote write / OTLP / push，cluster=prod-a"| prom
+  agentA --> loki
+  agentA --> tempo
+  agentA --> pyro
+  agentB -->|"同上，cluster=prod-b"| prom
+  agentB --> loki
+  agentB --> tempo
+  agentB --> pyro
+  prom --> graf
+  loki --> graf
+  tempo --> graf
+  pyro --> graf
+```
+
+Compose 仍然是一台机器上的中心栈，`cluster` 固定为 `local`。Agent 配置里的环境变量和 Kubernetes 工作负载集群是同一条管道，只是 URL 指向 Docker 网络里的服务名。
+
+清单仍然是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 负责把同一批文件渲染成 ConfigMap。Terraform 是下发入口：`deploy/terraform/stacks/platform` 用 `for_each` 调用 `modules/cluster_agent`，用 provider alias 绑定每个集群的 kubeconfig。增加第三个集群改的是变量和一行 alias，不是再复制一份 Deployment。步骤在 [deploy/terraform/README.md](deploy/terraform/README.md)。
 
 五层监控和运维说明：
 
@@ -131,9 +168,10 @@ config/nginx/              Nginx 反代与 stub_status，Compose 和 Kubernetes 
 config/redis/              Redis maxmemory，供内存饱和告警
 examples/demo-app/         已接入 OTel 的示例服务，含业务指标
 deploy/docker-compose/     本地全栈
-deploy/kubernetes/         Kustomize base 与 dev/prod overlay
+deploy/kubernetes/         Kustomize base、dev/prod overlay、agent 工作负载清单
+deploy/terraform/          中心栈与多集群 agent 的 Terraform 入口
 deploy/images.env          镜像钉扎清单
-docs/                      架构、五层指标目录、接入、处理、倾斜、排障、SLO
+docs/                      架构、多集群、五层指标目录、接入、处理、倾斜、排障、SLO
 scripts/config-check.sh    配置校验
 ```
 
@@ -244,7 +282,7 @@ make down
 - 本地：`config/alloy/config.alloy`。`prometheus.exporter.unix` 读 `/host/proc`、`/host/sys`、`/host/root`，remote write 到 Prometheus，job 名是 `alloy-unix`。主机仪表盘读 node_exporter 的 job `node`。OTLP 接收器转发给 Collector，demo 默认不走这里。
 - Kubernetes：`config/alloy/config.k8s.alloy`。额外做两件事：只采集 `NODE_NAME` 上的 Pod 日志并推到 Loki；通过 API server 代理抓本节点 cAdvisor。证书用 ServiceAccount 的 CA，不跳过 TLS。
 
-两边的 Prometheus remote write URL 都是 `http://prometheus:9090/api/v1/write`。改地址时两处一起改，`config-check` 不替你做语义 diff，但架构文档把这个约定写死了。
+三份 Alloy 配置都从环境变量读取 `PROMETHEUS_REMOTE_WRITE_URL`、`LOKI_PUSH_URL` 和 `CLUSTER_NAME`。Compose 把它们设成 `http://prometheus:9090/api/v1/write`、`http://loki:3100/loki/api/v1/push` 和 `local`。中心集群的 ConfigMap `observability-endpoints` 用同一组默认值。工作负载集群由 Terraform 写入该集群自己的名字和中心 URL。`config/alloy/config.workload.alloy` 额外按节点抓取 node-exporter，job 名是 `node`。
 
 ### Prometheus
 
@@ -335,7 +373,20 @@ Demo 对照（`examples/demo-app`）：
 
 ## 8. Kubernetes 部署
 
-清单在 `deploy/kubernetes`。`base` 引用 `config/` 生成 ConfigMap。`overlays/dev` 把几块盘降到 2Gi，环境标成 `dev`。`overlays/prod` 加大请求/限制和磁盘，并把 demo 的环境标成 `prod`。两边都是单副本。
+清单在 `deploy/kubernetes`。`base` 引用 `config/` 生成 ConfigMap。`overlays/dev` 把几块盘降到 2Gi，环境标成 `dev`。`overlays/prod` 加大请求/限制和磁盘，并把 demo 的环境标成 `prod`。两边都是单副本，并且都是完整的中心栈。工作负载集群用 `deploy/kubernetes/agent`，只包含 Alloy、Collector、node-exporter、kube-state-metrics 和 NetworkPolicy。
+
+多集群的管理入口是 Terraform，不是把下面的 `kubectl apply` 复制到每台机器上。`kubectl` 仍然是 Terraform 内部用来应用 Kustomize 输出的工具。只想在一个集群上看 YAML 时，可以继续用本节的命令。
+
+```bash
+cd deploy/terraform/stacks/platform
+cp terraform.tfvars.example terraform.tfvars
+# 编辑 kubeconfig 路径。不要把 kubeconfig 或密码提交到 git。
+terraform init
+terraform plan
+terraform apply
+```
+
+`make terraform-check` 会 `terraform fmt -check`、`init -backend=false` 和 `validate`。`make config-check` 会调用它。详细的 init、plan、apply、远端状态、按集群销毁见 [deploy/terraform/README.md](deploy/terraform/README.md)。
 
 先创建 Grafana 管理员 Secret（不要写进 git）：
 
@@ -504,7 +555,8 @@ make test
 - `promtool check rules` 和 `promtool test rules`
 - `amtool check-config`
 - `loki -verify-config`（本机有二进制时）
-- `kustomize build --load-restrictor LoadRestrictionsNone` 渲染 dev 与 prod overlay
+- `kustomize build --load-restrictor LoadRestrictionsNone` 渲染 dev、prod 与 agent
+- `terraform fmt -check`、`terraform init -backend=false`、`terraform validate`（`make terraform-check`）
 - `docker compose config`（有 Docker CLI 时；没有守护进程也可以只做配置渲染）
 - 编译并跑 demo 单测
 
@@ -522,9 +574,9 @@ make test
 4. 业务：订单、支付、结账延迟、活跃用户，标签允许表写在应用和 Collector 里。
 5. 自身：Collector、Prometheus、Loki、Tempo、Pyroscope、Grafana、Alertmanager、Alloy 的管道指标和告警。
 
-后面的演进仍然是单机拓扑向外长，而不是在这个仓库里拆成多集群：
+多集群已经接在这个仓库里：中心栈仍是单副本本地盘，工作负载集群通过 Terraform 把 agent 指到中心端点。还没做的是把中心进程拆成多副本。
 
-1. `kustomize build --load-restrictor LoadRestrictionsNone deploy/kubernetes/overlays/dev | kubectl apply -f -` 放到一个开发集群，仍然是单副本本地盘。node-exporter 的静态 Service 只适合单节点；多节点改成服务发现，并继续用 job `node`，不要和 `alloy-unix` 混加。
+1. 中心集群继续用 `overlays/dev` 或 `overlays/prod`。中心节点上的 node-exporter 仍由 Prometheus 抓取 Service `node-exporter:9100`，这只适合中心侧单节点。工作负载集群由 `config/alloy/config.workload.alloy` 按节点抓取，job 仍是 `node`，instance 是节点名，不和 `alloy-unix` 混加。
 2. 给 remote write、Loki、Tempo、Pyroscope 前面加鉴权网关，NetworkPolicy 收紧出站，Grafana 改到 Ingress 后面并打开 TLS。
 3. 指标从单机 Prometheus 迁到 Mimir（或 Thanos）。规则文件可以原样挂到 Mimir ruler。
 4. 日志改 Loki scalable 模式加对象存储；链路改 Tempo 分布式；Profile 改 Pyroscope 微服务。用对应 Helm chart，不要复制本仓库的 Deployment 去凑副本。

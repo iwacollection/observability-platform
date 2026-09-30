@@ -29,6 +29,32 @@ spec:
           args:
             - --config=/etc/otelcol-contrib/config.yaml
             - --feature-gates=service.profilesSupport
+          env:
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
+            - name: PROMETHEUS_REMOTE_WRITE_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PROMETHEUS_REMOTE_WRITE_URL
+            - name: LOKI_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: LOKI_OTLP_ENDPOINT
+            - name: TEMPO_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: TEMPO_OTLP_ENDPOINT
+            - name: PYROSCOPE_OTLP_ENDPOINT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_OTLP_ENDPOINT
           ports:
             - name: otlp-grpc
               containerPort: 4317

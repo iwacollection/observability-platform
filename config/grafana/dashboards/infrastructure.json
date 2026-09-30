@@ -54,7 +54,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "instance:node_cpu_utilization:ratio",
+          "expr": "instance:node_cpu_utilization:ratio{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -96,7 +96,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "instance:node_memory_utilization:ratio",
+          "expr": "instance:node_memory_utilization:ratio{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -138,7 +138,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "node_load1{job=\"node\"}",
+          "expr": "node_load1{cluster=\"$cluster\",job=\"node\"}",
           "legendFormat": "{{instance}} load1"
         }
       ]
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "instance:node_filesystem_free:ratio",
+          "expr": "instance:node_filesystem_free:ratio{cluster=\"$cluster\"}",
           "legendFormat": "{{instance}} {{mountpoint}}"
         }
       ]
@@ -222,7 +222,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, device) (rate(node_disk_io_time_seconds_total{job=\"node\",device!~\"loop.*\"}[5m]))",
+          "expr": "sum by (instance, device) (rate(node_disk_io_time_seconds_total{cluster=\"$cluster\",job=\"node\",device!~\"loop.*\"}[5m]))",
           "legendFormat": "{{instance}} {{device}}"
         }
       ]
@@ -264,7 +264,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (instance, device) (rate(node_network_receive_bytes_total{job=\"node\",device!~\"lo\"}[5m]))",
+          "expr": "sum by (instance, device) (rate(node_network_receive_bytes_total{cluster=\"$cluster\",job=\"node\",device!~\"lo\"}[5m]))",
           "legendFormat": "{{instance}} {{device}}"
         }
       ]
@@ -305,7 +305,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "up{job=\"node\"}",
+          "expr": "up{cluster=\"$cluster\",job=\"node\"}",
           "legendFormat": "{{instance}}"
         }
       ]
@@ -346,7 +346,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(kube_pod_status_ready{job=\"kube-state-metrics\",condition=\"false\"})",
+          "expr": "sum(kube_pod_status_ready{cluster=\"$cluster\",job=\"kube-state-metrics\",condition=\"false\"})",
           "legendFormat": "not ready"
         }
       ]
@@ -387,7 +387,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(kube_deployment_status_replicas_unavailable{job=\"kube-state-metrics\"})",
+          "expr": "sum(kube_deployment_status_replicas_unavailable{cluster=\"$cluster\",job=\"kube-state-metrics\"})",
           "legendFormat": "unavailable"
         }
       ]
@@ -429,7 +429,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{container!=\"\"}[5m]))",
+          "expr": "sum by (namespace, pod, container) (rate(container_cpu_usage_seconds_total{cluster=\"$cluster\",container!=\"\"}[5m]))",
           "legendFormat": "{{namespace}}/{{pod}}"
         }
       ]
@@ -471,14 +471,47 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (namespace, pod, container) (container_memory_working_set_bytes{container!=\"\"})",
+          "expr": "sum by (namespace, pod, container) (container_memory_working_set_bytes{cluster=\"$cluster\",container!=\"\"})",
           "legendFormat": "{{namespace}}/{{pod}}"
         }
       ]
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(cluster)",
+        "query": {
+          "query": "label_values(cluster)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "regex": "",
+        "current": {
+          "selected": true,
+          "text": "local",
+          "value": "local"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "local",
+            "value": "local"
+          }
+        ]
+      }
+    ]
   },
   "annotations": {
     "list": []

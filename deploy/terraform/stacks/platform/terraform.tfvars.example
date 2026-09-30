@@ -1,0 +1,33 @@
+# Copy to terraform.tfvars (gitignored) and point kubeconfig at files that
+# are not in this repository. The hostnames use the reserved .invalid TLD.
+
+central_kubeconfig   = "~/.kube/observability-central"
+central_kube_context = "central"
+central_overlay      = "dev"
+central_cluster_name = "local"
+
+# Leave grafana_admin_password unset. Export TF_VAR_grafana_admin_password
+# or create the grafana-admin Secret with kubectl. Do not commit a password.
+
+workload_clusters = {
+  prod-a = {
+    kubeconfig                  = "~/.kube/observability-prod-a"
+    context                     = "prod-a"
+    prometheus_remote_write_url = "http://prometheus.central.example.invalid:9090/api/v1/write"
+    loki_push_url               = "http://loki.central.example.invalid:3100/loki/api/v1/push"
+    loki_otlp_endpoint          = "http://loki.central.example.invalid:3100/otlp"
+    tempo_otlp_endpoint         = "tempo.central.example.invalid:4317"
+    pyroscope_otlp_endpoint     = "pyroscope.central.example.invalid:4040"
+    pyroscope_http_url          = "http://pyroscope.central.example.invalid:4040"
+  }
+  prod-b = {
+    kubeconfig                  = "~/.kube/observability-prod-b"
+    context                     = "prod-b"
+    prometheus_remote_write_url = "http://prometheus.central.example.invalid:9090/api/v1/write"
+    loki_push_url               = "http://loki.central.example.invalid:3100/loki/api/v1/push"
+    loki_otlp_endpoint          = "http://loki.central.example.invalid:3100/otlp"
+    tempo_otlp_endpoint         = "tempo.central.example.invalid:4317"
+    pyroscope_otlp_endpoint     = "pyroscope.central.example.invalid:4040"
+    pyroscope_http_url          = "http://pyroscope.central.example.invalid:4040"
+  }
+}

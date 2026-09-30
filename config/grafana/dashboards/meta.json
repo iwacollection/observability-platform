@@ -54,7 +54,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "up",
+          "expr": "up{cluster=\"$cluster\"}",
           "legendFormat": "{{job}} {{instance}}"
         }
       ]
@@ -96,7 +96,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "platform:prometheus_head_series",
+          "expr": "platform:prometheus_head_series{cluster=\"$cluster\"}",
           "legendFormat": "series"
         }
       ]
@@ -138,7 +138,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "platform:prometheus_series_created:rate10m",
+          "expr": "platform:prometheus_series_created:rate10m{cluster=\"$cluster\"}",
           "legendFormat": "created"
         }
       ]
@@ -180,7 +180,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "platform:collector_queue_utilization:ratio",
+          "expr": "platform:collector_queue_utilization:ratio{cluster=\"$cluster\"}",
           "legendFormat": "{{exporter}}"
         }
       ]
@@ -222,7 +222,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_receiver_refused_spans_total[5m])) or sum(rate(otelcol_receiver_refused_spans[5m]))",
+          "expr": "sum(rate(otelcol_receiver_refused_spans_total{cluster=\"$cluster\"}[5m])) or sum(rate(otelcol_receiver_refused_spans{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "refused spans"
         }
       ]
@@ -264,7 +264,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(otelcol_exporter_send_failed_spans_total[5m])) or sum(rate(otelcol_exporter_send_failed_metric_points_total[5m])) or sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))",
+          "expr": "sum(rate(otelcol_exporter_send_failed_spans_total{cluster=\"$cluster\"}[5m])) or sum(rate(otelcol_exporter_send_failed_metric_points_total{cluster=\"$cluster\"}[5m])) or sum(rate(otelcol_exporter_send_failed_log_records_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "export failures"
         }
       ]
@@ -306,7 +306,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "platform:loki_discarded_samples:rate5m",
+          "expr": "platform:loki_discarded_samples:rate5m{cluster=\"$cluster\"}",
           "legendFormat": "{{reason}}"
         }
       ]
@@ -348,7 +348,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(loki_ingester_streams_created_total[5m]))",
+          "expr": "sum(rate(loki_ingester_streams_created_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "streams"
         }
       ]
@@ -390,7 +390,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(loki_distributor_lines_received_total[5m]))",
+          "expr": "sum(rate(loki_distributor_lines_received_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "lines"
         }
       ]
@@ -432,7 +432,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (tenant) (rate(tempo_distributor_spans_received_total[5m]))",
+          "expr": "sum by (tenant) (rate(tempo_distributor_spans_received_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "{{tenant}}"
         }
       ]
@@ -474,7 +474,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "platform:tempo_discarded_spans:rate5m",
+          "expr": "platform:tempo_discarded_spans:rate5m{cluster=\"$cluster\"}",
           "legendFormat": "{{reason}}"
         }
       ]
@@ -516,7 +516,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(pyroscope_distributor_profiles_received_total[5m]))",
+          "expr": "sum(rate(pyroscope_distributor_profiles_received_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "profiles"
         }
       ]
@@ -558,7 +558,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (reason) (rate(pyroscope_discarded_samples_total[5m]))",
+          "expr": "sum by (reason) (rate(pyroscope_discarded_samples_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "{{reason}}"
         }
       ]
@@ -600,7 +600,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(prometheus_remote_storage_samples_failed_total{job=\"alloy\"}[5m]))",
+          "expr": "sum(rate(prometheus_remote_storage_samples_failed_total{cluster=\"$cluster\",job=\"alloy\"}[5m]))",
           "legendFormat": "failed"
         }
       ]
@@ -642,7 +642,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(prometheus_rule_evaluation_failures_total[5m]))",
+          "expr": "sum(rate(prometheus_rule_evaluation_failures_total{cluster=\"$cluster\"}[5m]))",
           "legendFormat": "failures"
         }
       ]
@@ -684,14 +684,47 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(loki_ingester_memory_streams)",
+          "expr": "sum(loki_ingester_memory_streams{cluster=\"$cluster\"})",
           "legendFormat": "streams"
         }
       ]
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(cluster)",
+        "query": {
+          "query": "label_values(cluster)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "regex": "",
+        "current": {
+          "selected": true,
+          "text": "local",
+          "value": "local"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "local",
+            "value": "local"
+          }
+        ]
+      }
+    ]
   },
   "annotations": {
     "list": []

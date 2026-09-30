@@ -11,6 +11,15 @@
 #   delete identifiers and raw URLs on every signal that supports the
 #   attributes processor. Business label values that are not on the
 #   allow-list are rewritten to "other" by the transform processor.
+#   resource/cluster upserts the low-cardinality cluster name from
+#   CLUSTER_NAME (default local). It overwrites an app-supplied value so
+#   the gateway, not the workload, decides the identity label.
+#
+# Export URLs default to the in-cluster DNS names used by Compose and the
+# central stack. Workload clusters set the env vars to the central endpoints.
+# tls.insecure is plaintext. These defaults are http, not https. A TLS
+# gateway in front of the central stack needs this block changed; do not
+# commit certificates.
 
 extensions:
   health_check:
@@ -32,6 +41,11 @@ processors:
     check_interval: 1s
     limit_percentage: 75
     spike_limit_percentage: 20
+  resource/cluster:
+    attributes:
+      - key: cluster
+        value: ${env:CLUSTER_NAME:-local}
+        action: upsert
   attributes/sanitize:
     actions:
       - key: user.id
@@ -109,7 +123,9 @@ processors:
 
 exporters:
   prometheusremotewrite:
-    endpoint: http://prometheus:9090/api/v1/write
+    endpoint: ${env:PROMETHEUS_REMOTE_WRITE_URL:-http://prometheus:9090/api/v1/write}
+    external_labels:
+      cluster: ${env:CLUSTER_NAME:-local}
     resource_to_telemetry_conversion:
       enabled: true
     remote_write_queue:
@@ -117,15 +133,15 @@ exporters:
       num_consumers: 4
       queue_size: 2000
   otlphttp/loki:
-    endpoint: http://loki:3100/otlp
+    endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
     tls:
       insecure: true
   otlp/tempo:
-    endpoint: tempo:4317
+    endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
     tls:
       insecure: true
   otlp/pyroscope:
-    endpoint: pyroscope:4040
+    endpoint: ${env:PYROSCOPE_OTLP_ENDPOINT:-pyroscope:4040}
     tls:
       insecure: true
 
@@ -145,15 +161,15 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, attributes/sanitize, filter/query_in_route, transform/business_labels, batch]
+      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/business_labels, batch]
       exporters: [prometheusremotewrite]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, attributes/sanitize, filter/query_in_route, batch]
+      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, batch]
       exporters: [otlphttp/loki]
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, attributes/sanitize, filter/query_in_route, tail_sampling, batch]
+      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, tail_sampling, batch]
       exporters: [otlp/tempo]
     # batch, attributes, filter, and tail_sampling do not implement profiles
     # in collector 0.161. Keep this pipeline on memory_limiter only.

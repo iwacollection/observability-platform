@@ -126,6 +126,23 @@ tests:
           - labels: 'business:payments:failure_ratio5m{service_name="demo-app"}'
             value: 0.6666666666666666
 
+  # cluster is part of the aggregation. Two clusters with the same service
+  # name must not collapse into one series.
+  - interval: 1m
+    input_series:
+      - series: 'http_server_request_duration_seconds_count{cluster="prod-a",service_name="demo-app",http_route="/api/work",http_response_status_code="200"}'
+        values: "0+60x20"
+      - series: 'http_server_request_duration_seconds_count{cluster="prod-b",service_name="demo-app",http_route="/api/work",http_response_status_code="200"}'
+        values: "0+60x20"
+    promql_expr_test:
+      - expr: slo:http_requests:rate5m
+        eval_time: 10m
+        exp_samples:
+          - labels: 'slo:http_requests:rate5m{cluster="prod-a",service_name="demo-app"}'
+            value: 1
+          - labels: 'slo:http_requests:rate5m{cluster="prod-b",service_name="demo-app"}'
+            value: 1
+
   - interval: 1m
     input_series:
       - series: 'loki_discarded_samples_total{reason="stream_limit",job="loki",tenant="fake"}'

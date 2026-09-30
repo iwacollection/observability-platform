@@ -9,6 +9,7 @@
 | `service.name` | `service_name` | demo 是 `demo-app` |
 | `service.namespace` | `service_namespace` | 固定 `observability` |
 | `deployment.environment` | `deployment_environment` | Compose `local`，Kustomize dev/prod 分别是 `dev` / `prod` |
+| `cluster` | `cluster` | Compose 和中心栈是 `local`。工作负载集群是 Terraform map 的键，例如 `prod-a`。一个集群一个值 |
 
 不要把用户 id、订单 id、完整 URL、查询字符串放进资源属性或数据点属性。Collector 会删掉一批键，但删之前它们已经进过内存。
 
@@ -97,6 +98,8 @@ Prometheus 打开了 `--web.enable-remote-write-receiver`。写入 URL 是 `http
 | Tempo span metrics | `config/tempo/tempo.yaml` 的 metrics generator remote write |
 
 没有鉴权。不要把 9090 暴露到公网。
+
+工作负载集群不解析 `prometheus` 这个 Service 名。Alloy 的 `PROMETHEUS_REMOTE_WRITE_URL` 和 Collector 的 `PROMETHEUS_REMOTE_WRITE_URL` 指向中心集群上可达的地址，并在写出时带上 `cluster`。日志推送是 `LOKI_PUSH_URL`（Alloy）和 `LOKI_OTLP_ENDPOINT`（Collector）。链路是 `TEMPO_OTLP_ENDPOINT`，Profile 是 `PYROSCOPE_OTLP_ENDPOINT`（OTLP）和 `PYROSCOPE_HTTP_URL`（Pyroscope SDK）。Compose 把这些变量设成 Docker 网络里的服务名，管道相同。键的清单在 `deploy/kubernetes/base/endpoints.yaml`。
 
 ## Loki：OTLP 和 Alloy
 

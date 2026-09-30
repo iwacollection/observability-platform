@@ -55,7 +55,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{http_route!=\"/healthz\"}[5m]))",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",http_route!=\"/healthz\"}[5m]))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -97,7 +97,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(http_server_request_duration_seconds_count{http_route!=\"/healthz\"}[5m]))",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",http_route!=\"/healthz\"}[5m]))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -139,7 +139,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket{http_route!=\"/healthz\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket{cluster=\"$cluster\",http_route!=\"/healthz\"}[5m])))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -181,7 +181,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service:http_inflight:sum",
+          "expr": "service:http_inflight:sum{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -223,7 +223,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service:process_cpu_utilization:ratio",
+          "expr": "service:process_cpu_utilization:ratio{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -265,7 +265,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "process_runtime_cpython_memory_bytes{type=\"rss\"}",
+          "expr": "process_runtime_cpython_memory_bytes{cluster=\"$cluster\",type=\"rss\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -307,7 +307,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "slo:http_latency_good:ratio_rate5m",
+          "expr": "slo:http_latency_good:ratio_rate5m{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -349,14 +349,47 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "slo:http_errors:ratio_rate5m",
+          "expr": "slo:http_errors:ratio_rate5m{cluster=\"$cluster\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
     }
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "cluster",
+        "label": "Cluster",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(cluster)",
+        "query": {
+          "query": "label_values(cluster)",
+          "refId": "StandardVariableQuery"
+        },
+        "refresh": 2,
+        "sort": 1,
+        "includeAll": false,
+        "multi": false,
+        "hide": 0,
+        "regex": "",
+        "current": {
+          "selected": true,
+          "text": "local",
+          "value": "local"
+        },
+        "options": [
+          {
+            "selected": true,
+            "text": "local",
+            "value": "local"
+          }
+        ]
+      }
+    ]
   },
   "annotations": {
     "list": []
