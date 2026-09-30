@@ -1,0 +1,16 @@
+# Remote state example. Copy to backend.tf only after the bucket exists and
+# you have reviewed the credentials. This file is not loaded by Terraform.
+# Do not commit a backend.tf that contains account ids or keys.
+#
+# terraform {
+#   backend "s3" {
+#     bucket = "REPLACE_ME-observability-tfstate"
+#     key    = "observability/attach-existing/terraform.tfstate"
+#     region = "us-east-1"
+#   }
+# }
+#
+# Local state is the default when no backend block is present. State contains
+# TF_VAR_ingest_token and TF_VAR_grafana_auth when those variables are set,
+# and the Authorization header on each Grafana datasource. Keep the state
+# file off git (*.tfstate is gitignored) and encrypt remote state at rest.

@@ -58,6 +58,30 @@ processors:
       - key: cluster
         value: ${env:CLUSTER_NAME:-local}
         action: upsert
+  # Attach-existing sets TENANT, BUSINESS_LINE, and ORG_ID. Empty or unset
+  # values do not overwrite application attributes, so the central stack and
+  # the platform workload path stay multi-tenant. transform/tenancy still
+  # rewrites unknown values to rejected after this processor.
+  transform/attach_identity:
+    error_mode: ignore
+    metric_statements:
+      - context: resource
+        statements:
+          - set(attributes["tenant"], "${env:TENANT:-}") where "${env:TENANT:-}" != ""
+          - set(attributes["business_line"], "${env:BUSINESS_LINE:-}") where "${env:BUSINESS_LINE:-}" != ""
+          - set(attributes["org_id"], "${env:ORG_ID:-}") where "${env:ORG_ID:-}" != ""
+    trace_statements:
+      - context: resource
+        statements:
+          - set(attributes["tenant"], "${env:TENANT:-}") where "${env:TENANT:-}" != ""
+          - set(attributes["business_line"], "${env:BUSINESS_LINE:-}") where "${env:BUSINESS_LINE:-}" != ""
+          - set(attributes["org_id"], "${env:ORG_ID:-}") where "${env:ORG_ID:-}" != ""
+    log_statements:
+      - context: resource
+        statements:
+          - set(attributes["tenant"], "${env:TENANT:-}") where "${env:TENANT:-}" != ""
+          - set(attributes["business_line"], "${env:BUSINESS_LINE:-}") where "${env:BUSINESS_LINE:-}" != ""
+          - set(attributes["org_id"], "${env:ORG_ID:-}") where "${env:ORG_ID:-}" != ""
   attributes/sanitize:
     actions:
       - key: user.id
@@ -340,15 +364,15 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/business_labels, transform/tenancy, batch]
+      processors: [memory_limiter, resource/cluster, transform/attach_identity, attributes/sanitize, filter/query_in_route, transform/business_labels, transform/tenancy, batch]
       exporters: [prometheusremotewrite]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/tenancy, batch]
+      processors: [memory_limiter, resource/cluster, transform/attach_identity, attributes/sanitize, filter/query_in_route, transform/tenancy, batch]
       exporters: [routing/logs]
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/tenancy, tail_sampling, batch]
+      processors: [memory_limiter, resource/cluster, transform/attach_identity, attributes/sanitize, filter/query_in_route, transform/tenancy, tail_sampling, batch]
       exporters: [routing/traces]
     # batch, attributes, filter, and tail_sampling do not implement profiles
     # in collector 0.161. Keep this pipeline on memory_limiter only.

@@ -71,6 +71,8 @@ fi
 
 if [[ -n "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
   "${kc[@]}" create namespace observability --dry-run=client -o yaml | "${kc[@]}" apply -f -
+  # TENANT, BUSINESS_LINE, and ORG_ID may be empty. Empty does not overwrite
+  # application labels. The attach-existing stack sets all three.
   "${kc[@]}" -n observability create configmap observability-endpoints \
     --from-literal=CLUSTER_NAME="$ENDPOINTS_CLUSTER_NAME" \
     --from-literal=PROMETHEUS_REMOTE_WRITE_URL="$ENDPOINTS_PROMETHEUS_REMOTE_WRITE_URL" \
@@ -79,6 +81,9 @@ if [[ -n "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
     --from-literal=TEMPO_OTLP_ENDPOINT="$ENDPOINTS_TEMPO_OTLP_ENDPOINT" \
     --from-literal=PYROSCOPE_OTLP_ENDPOINT="$ENDPOINTS_PYROSCOPE_OTLP_ENDPOINT" \
     --from-literal=PYROSCOPE_HTTP_URL="$ENDPOINTS_PYROSCOPE_HTTP_URL" \
+    --from-literal=TENANT="${ENDPOINTS_TENANT:-}" \
+    --from-literal=BUSINESS_LINE="${ENDPOINTS_BUSINESS_LINE:-}" \
+    --from-literal=ORG_ID="${ENDPOINTS_ORG_ID:-}" \
     --dry-run=client -o yaml | "${kc[@]}" apply -f -
 fi
 

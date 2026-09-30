@@ -6,8 +6,13 @@
 // Requires NODE_NAME from the downward API (spec.nodeName).
 // CLUSTER_NAME, PROMETHEUS_REMOTE_WRITE_URL, and LOKI_PUSH_URL come from
 // the observability-endpoints ConfigMap. Terraform sets CLUSTER_NAME to the
-// workload cluster name and the URLs to the central stack. There is no
-// central Prometheus inside this cluster to scrape job=node.
+// workload cluster name and the URLs to the central stack, or to an existing
+// system when stacks/attach-existing is applied. There is no central
+// Prometheus inside this cluster to scrape job=node.
+//
+// TENANT, BUSINESS_LINE, and ORG_ID come from the same ConfigMap. Empty
+// values are not written, so the platform path keeps pod labels. The
+// attach-existing stack sets them and the bearer token.
 //
 // Host metrics use /host/proc, /host/sys, /host/root (job alloy-unix).
 // node_exporter is scraped on this node only, job=node, instance=node name
@@ -27,7 +32,7 @@ prometheus.exporter.unix "node" {
 // job="node" from the node_exporter scrape below. Do not rename this job.
 prometheus.scrape "node" {
 	targets         = prometheus.exporter.unix.node.targets
-	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	forward_to      = [prometheus.relabel.identity.receiver]
 	scrape_interval = "15s"
 	job_name        = "alloy-unix"
 }
@@ -67,7 +72,7 @@ discovery.relabel "cadvisor" {
 // That kept cAdvisor's id / container_id / image_id labels, one series per
 // container runtime id. After: drop those label names before remote write.
 prometheus.relabel "cadvisor_labels" {
-	forward_to = [prometheus.remote_write.prometheus.receiver]
+	forward_to = [prometheus.relabel.identity.receiver]
 
 	rule {
 		regex  = "id|container_id|image_id"
@@ -128,7 +133,7 @@ discovery.relabel "node_exporter" {
 
 prometheus.scrape "node_exporter" {
 	targets         = discovery.relabel.node_exporter.output
-	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	forward_to      = [prometheus.relabel.identity.receiver]
 	scrape_interval = "15s"
 	job_name        = "node"
 }
@@ -138,9 +143,44 @@ prometheus.scrape "kube_state" {
 	targets = [{
 		__address__ = "kube-state-metrics:8080",
 	}]
-	forward_to      = [prometheus.remote_write.prometheus.receiver]
+	forward_to      = [prometheus.relabel.identity.receiver]
 	scrape_interval = "30s"
 	job_name        = "kube-state-metrics"
+}
+
+// Stamp tenant and business_line when the attach-existing stack set them.
+// An empty replacement deletes the label, so the platform path (empty env)
+// does not add a label and does not keep a blank one.
+prometheus.relabel "identity" {
+	forward_to = [prometheus.remote_write.prometheus.receiver]
+
+	rule {
+		target_label = "tenant"
+		replacement  = sys.env("TENANT")
+		action       = "replace"
+	}
+
+	rule {
+		source_labels = ["tenant"]
+		regex         = "^$"
+		replacement   = ""
+		target_label  = "tenant"
+		action        = "replace"
+	}
+
+	rule {
+		target_label = "business_line"
+		replacement  = sys.env("BUSINESS_LINE")
+		action       = "replace"
+	}
+
+	rule {
+		source_labels = ["business_line"]
+		regex         = "^$"
+		replacement   = ""
+		target_label  = "business_line"
+		action        = "replace"
+	}
 }
 
 prometheus.remote_write "prometheus" {
@@ -221,6 +261,17 @@ discovery.relabel "pod_logs" {
 
 loki.process "org" {
 	forward_to = [loki.write.default.receiver]
+
+	// Empty values are skipped by the stage, so pod labels stay on the
+	// platform path. A non-empty attach-existing value overwrites them,
+	// and stage.tenant turns org_id into X-Scope-OrgID.
+	stage.static_labels {
+		values = {
+			tenant        = sys.env("TENANT"),
+			business_line = sys.env("BUSINESS_LINE"),
+			org_id        = sys.env("ORG_ID"),
+		}
+	}
 
 	stage.tenant {
 		label = "org_id"

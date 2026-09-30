@@ -71,6 +71,9 @@ resource "terraform_data" "agent_apply" {
     pyroscope_http     = var.pyroscope_http_url
     collector_replicas = tostring(var.collector_replicas)
     managed_ids        = join(",", local.managed_ids)
+    tenant             = var.tenant
+    business_line      = var.business_line
+    org_id             = var.org_id
     # Sensitive. A new token re-applies Secret ingest-auth on this cluster.
     ingest_token_sha = sha256(coalesce(var.ingest_token, ""))
   }
@@ -88,6 +91,9 @@ resource "terraform_data" "agent_apply" {
     pyroscope_http      = var.pyroscope_http_url
     collector_replicas  = tostring(var.collector_replicas)
     ingest_token        = coalesce(var.ingest_token, "")
+    tenant              = var.tenant
+    business_line       = var.business_line
+    org_id              = var.org_id
     endpoints_configmap = local.endpoints_configmap_name
     ingest_secret       = local.ingest_secret_name
   }
@@ -105,6 +111,9 @@ resource "terraform_data" "agent_apply" {
       ENDPOINTS_TEMPO_OTLP_ENDPOINT         = self.input.tempo
       ENDPOINTS_PYROSCOPE_OTLP_ENDPOINT     = self.input.pyroscope
       ENDPOINTS_PYROSCOPE_HTTP_URL          = self.input.pyroscope_http
+      ENDPOINTS_TENANT                      = self.input.tenant
+      ENDPOINTS_BUSINESS_LINE               = self.input.business_line
+      ENDPOINTS_ORG_ID                      = self.input.org_id
       WORKLOAD_COLLECTOR_REPLICAS           = self.input.collector_replicas
       INGEST_TOKEN                          = self.input.ingest_token
       INGEST_SECRET_MODE                    = "script"

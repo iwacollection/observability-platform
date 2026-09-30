@@ -237,6 +237,10 @@ if command -v alloy >/dev/null 2>&1; then
   export INGEST_TOKEN=dev-ingest-token
   export PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
   export LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
+  # Workload alloy reads these. Empty is the platform path: labels are not stamped.
+  export TENANT="${TENANT-}"
+  export BUSINESS_LINE="${BUSINESS_LINE-}"
+  export ORG_ID="${ORG_ID-}"
   alloy validate "$root/config/alloy/config.alloy" || die "alloy validate local"
   # Kubernetes config reads NODE_NAME at runtime. Validate with it set.
   NODE_NAME=validate-node alloy validate "$root/config/alloy/config.k8s.alloy" || die "alloy validate k8s"

@@ -1,14 +1,96 @@
 # Terraform
 
-集群里的可观测组件只通过这一条路径安装：`deploy/terraform/stacks/platform` 的 `terraform apply`。YAML 仍是清单来源，Kustomize 负责渲染。人不需要再单独 `kubectl apply` 这套栈。
+有两条 Terraform 路径，加上一条不走 Terraform 的本机路径。
 
-本机 Docker Compose 不走 Terraform。`deploy/docker-compose/` 仍是笔记本上的入口。
+| 路径 | 什么时候用 |
+| --- | --- |
+| `deploy/terraform/stacks/platform` | 这套 Prometheus、Loki、Tempo、Pyroscope、Grafana 由我们安装。apply 会创建中心栈，再给工作负载集群装 agent |
+| `deploy/terraform/stacks/attach-existing` | 指标、日志、链路、Profile 和 Grafana 已经在别处跑着。apply 只给工作负载集群装 agent，并把该业务线的数据源、仪表盘和告警登记到现有 Grafana。不会创建 Prometheus、Loki、Tempo、Pyroscope 或 Grafana |
+| `deploy/docker-compose/` | 笔记本。不走 Terraform |
 
-Kubernetes provider 钉在 `hashicorp/kubernetes` `2.38.0`。Terraform CLI 需要 `>= 1.6.0`。
+YAML 仍是清单来源，Kustomize 负责渲染。人不需要再单独 `kubectl apply` 这套栈。更长的说明在 [docs/attach-existing.md](../../docs/attach-existing.md)。
 
-## 一条命令路径
+`stacks/platform` 的 Kubernetes provider 钉在 `hashicorp/kubernetes` `2.38.0`。`stacks/attach-existing` 的 Grafana provider 钉在 `grafana/grafana` `4.46.0`。Terraform CLI 需要 `>= 1.6.0`。
 
-在 `deploy/terraform/stacks/platform` 下操作。
+## 接到已经存在的系统
+
+在 `deploy/terraform/stacks/attach-existing` 下操作。这一次 apply 装的是工作负载集群上的命名空间、Alloy、两个副本的 Collector、node-exporter、kube-state-metrics、NetworkPolicy、ConfigMap `observability-endpoints` 和 Secret `ingest-auth`。`manage_grafana = true` 时，还会在现有 Grafana 里登记数据源、`toc-line` 或 `tob-line` 仪表盘，以及该业务线的 Grafana 告警。
+
+不会创建 Prometheus、Loki、Tempo、Pyroscope、Grafana。也不会装中心栈里的 demo 工作负载。应用自己把 OTLP 打到本集群的 `otel-collector.observability.svc:4317`。
+
+现有 Prometheus 收 remote write，收不了本仓库的规则文件。告警走 Grafana unified alerting，表达式来自 `config/prometheus/rules/tenancy.yml`，记录规则被展开进告警查询。
+
+### init、plan、apply
+
+```bash
+cd deploy/terraform/stacks/attach-existing
+cp terraform.tfvars.example terraform.tfvars
+```
+
+编辑 `terraform.tfvars`。主机名用真实地址，样例里的 `example.invalid` 不是环境。不要写 `prometheus.observability.svc`。不要把口令写进 tfvars。
+
+```bash
+export TF_VAR_ingest_token='现有系统的写入口令'
+export TF_VAR_grafana_auth='现有 Grafana 的 API token'
+terraform init
+terraform plan
+terraform apply
+```
+
+`TF_VAR_ingest_token` 是原始口令，不是带 `Bearer ` 的整段头。Agent 和数据源的 `Authorization` 会自己加 `Bearer`。`TF_VAR_grafana_auth` 是现有 Grafana 的 API token，或 `用户名:密码`。
+
+| 变量 | ToC | ToB acme | ToB northwind |
+| --- | --- | --- | --- |
+| `business_line` | `toc` | `tob` | `tob` |
+| `tenant` | `consumer` | `acme` | `northwind` |
+| `org_id` | `toc` | `tob-acme` | `tob-northwind` |
+
+`org_id` 是 `X-Scope-OrgID`。`tenant` 是指标和日志上的标签。两者不是同一个字符串。
+
+写入地址：
+
+| 变量 | 谁用 |
+| --- | --- |
+| `prometheus_remote_write_url` | Agent remote write。查询地址默认去掉 `/api/v1/write` 或 `/api/v1/push` |
+| `loki_push_url` | Agent 推日志。OTLP 基址默认是该 URL 的源加上 `/otlp` |
+| `tempo_otlp_endpoint` | Agent 的 Tempo gRPC，`host:port`，不带 `http://` |
+| `tempo_query_url` | Grafana 查 Tempo，通常是 `:3200` |
+| `pyroscope_url` | HTTP 基址。OTLP gRPC 去掉 scheme，仍是同一个 host:port |
+| `grafana_url` | 现有 Grafana 的 API |
+| `kubeconfig` | 只指向工作负载集群 |
+
+查询地址和写入地址不在同一台主机上时，设置 `prometheus_query_url`、`loki_query_url` 或 `loki_otlp_endpoint`。
+
+`terraform plan` 会读 `kubeconfig`，也会连现有 Grafana。没有集群时跑 `make terraform-check`，不要 apply。
+
+### 再加一个集群
+
+第一个集群保持 `manage_grafana = true`，它拥有数据源、仪表盘和告警。第二个集群另开一份状态（另一个目录，或 `terraform workspace`），`cluster_name` 和 `kubeconfig` 换成新集群，URL、`business_line`、`tenant`、`org_id` 与第一个相同，`manage_grafana = false`。然后在那份状态里 `terraform init`、`terraform plan`、`terraform apply`。
+
+两份状态都 `manage_grafana = true` 会抢同一个仪表盘 uid 和数据源 uid。
+
+### 换成另一个 ToB 租户
+
+`business_line` 保持 `tob`。把 `tenant` 和 `org_id` 改成目录里的另一个租户，例如 `northwind` 和 `tob-northwind`，再 `terraform apply`。Agent 改打这个租户的标签和 `X-Scope-OrgID`。ToB 仪表盘 JSON 里 acme 和 northwind 的数据源 uid 会一起登记，所以换租户不会拆掉另一个租户的数据源。
+
+新租户必须先写进 `config/tenancy.yaml` 并 `make render-tenancy`。不在允许表里的值会被收成 `rejected`。
+
+### 现有 Grafana 里没有数据
+
+1. 工作负载集群里 `kubectl -n observability get pods`。Alloy 和 `otel-collector` 应该 Ready。
+2. `kubectl -n observability get configmap observability-endpoints -o yaml`。`PROMETHEUS_REMOTE_WRITE_URL`、`LOKI_PUSH_URL`、`TEMPO_OTLP_ENDPOINT`、`PYROSCOPE_OTLP_ENDPOINT` 必须是现有系统，不能是 `prometheus.observability.svc`。`CLUSTER_NAME`、`TENANT`、`BUSINESS_LINE`、`ORG_ID` 与 tfvars 一致。
+3. Secret `ingest-auth` 的键 `token` 必须是现有系统认的那串口令。
+4. 在现有 Grafana 里打开数据源。Loki、Tempo、Pyroscope、Prometheus 的头要有 `X-Scope-OrgID`（等于 `org_id`）和 `Authorization`（`Bearer` 加口令）。ToB 面板用的 uid 是 `prometheus-tob-<tenant>` 和 `loki-tob-<tenant>`，不是只有 `prometheus`。
+5. 在 Prometheus 里查 `http_server_request_duration_seconds_count{cluster="<cluster_name>",business_line="<business_line>",tenant="<tenant>"}`。标签是 `rejected` 时，先看 `tenant` 是否在 `config/tenancy.yaml`。
+6. Loki 要带同一个 `X-Scope-OrgID` 查。写进了别的 org，图上会像没有数据。
+7. 数据源 URL 是查询地址。把 remote write 地址填进 Grafana 会查不到。
+8. Collector 日志里如果是 TLS 握手失败：Loki、Tempo、Pyroscope 的 OTLP exporter 仍是 `tls.insecure: true`，只适合明文。HTTPS 端点这条路径还接不上。
+9. 仪表盘 uid：ToC 是 `toc-line`，ToB 是 `tob-line`。右上角的集群变量要选 `cluster_name`。
+10. `manage_grafana = false` 的那次 apply 不会创建数据源。数据源在第一份状态里。
+
+## 安装我们自己的中心栈
+
+在 `deploy/terraform/stacks/platform` 下操作。这一节会创建 Prometheus、Loki、Tempo、Pyroscope 和 Grafana。后端已经存在时不要走这里。
 
 ### 准备 kubeconfig 和口令
 
@@ -117,8 +199,9 @@ terraform apply
 | `modules/cluster_agent` | 对 `deploy/kubernetes/agent` 做 apply，并写入 `observability-endpoints` 和 `ingest-auth` |
 | `modules/cluster_agent/managed_resources.yaml` | 工作负载集群对象清单 |
 | `modules/cluster_binding` | 用 Kubernetes provider 写入 ConfigMap `observability-cluster-binding` |
-| `stacks/platform` | 一个中心栈，加上 `workload_clusters` 的 `for_each` |
+| `stacks/platform` | 一个中心栈，加上 `workload_clusters` 的 `for_each`。我们拥有后端 |
 | `stacks/platform/tenancy.tf` | 读取 `config/tenancy.yaml` |
+| `stacks/attach-existing` | 只装 agent，并把数据源、`toc-line` 或 `tob-line` 仪表盘、告警登记到已有 Grafana。不创建后端 |
 | `stacks/platform/terraform.tfvars.example` | 变量样例。复制成 `terraform.tfvars`，该文件被 gitignore |
 | `stacks/platform/backend.tf.example` | 远端状态样例，Terraform 不会加载它 |
 | `scripts/kubectl-apply.sh` | 仅由 Terraform 的 local-exec 调用。不要手跑它来安装 |

@@ -85,7 +85,7 @@ flowchart LR
 
 Compose 仍然是一台机器上的中心栈，`cluster` 固定为 `local`。Agent 配置里的环境变量和 Kubernetes 工作负载集群是同一条管道，只是 URL 指向 Docker 网络里的服务名。
 
-清单仍然是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 负责把同一批文件渲染成 ConfigMap。Terraform 是下发入口：`deploy/terraform/stacks/platform` 用 `for_each` 调用 `modules/cluster_agent`，用 provider alias 绑定每个集群的 kubeconfig。增加第三个集群改的是变量和一行 alias，不是再复制一份 Deployment。Kustomize 渲染出的 kind/name 必须写在模块的 `managed_resources.yaml` 里，否则 `make config-check` 失败。步骤在 [deploy/terraform/README.md](deploy/terraform/README.md)。
+清单仍然是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 负责把同一批文件渲染成 ConfigMap。Terraform 有两个入口。`deploy/terraform/stacks/platform` 用 `for_each` 调用 `modules/cluster_agent`，用 provider alias 绑定每个集群的 kubeconfig，同时安装我们自己的中心栈。`deploy/terraform/stacks/attach-existing` 只在工作负载集群上装 agent，把数据送到已经存在的 Prometheus、Loki、Tempo、Pyroscope，并把该业务线的仪表盘和告警登记到已经存在的 Grafana；它不会创建这五个组件。增加第三个集群改的是变量和一行 alias，不是再复制一份 Deployment。Kustomize 渲染出的 kind/name 必须写在模块的 `managed_resources.yaml` 里，否则 `make config-check` 失败。步骤在 [deploy/terraform/README.md](deploy/terraform/README.md) 和 [docs/attach-existing.md](docs/attach-existing.md)。
 
 五层监控和运维说明：
 
@@ -94,6 +94,7 @@ Compose 仍然是一台机器上的中心栈，`cluster` 固定为 `local`。Age
 | [docs/metrics-catalog.md](docs/metrics-catalog.md) | 五层指标：名字、类型、标签、来源、PromQL、告警、仪表盘 |
 | [docs/debugging.md](docs/debugging.md) | 没有点、抓取失败、没有日志 / 链路 / Profile、告警不响、Collector 导出失败 |
 | [docs/onboarding.md](docs/onboarding.md) | OTLP、抓取、远程写、Loki、中间件 exporter、业务仪器和标签允许表 |
+| [docs/attach-existing.md](docs/attach-existing.md) | 接到已经存在的 Prometheus / Loki / Tempo / Pyroscope / Grafana，不安装这五个组件 |
 | [docs/processing.md](docs/processing.md) | Collector 处理器、记录规则、Loki 限制、保留时间 |
 | [docs/data-skew.md](docs/data-skew.md) | 高基数、热点、日志流、采样偏差、丢弃，以及仓库里的改前改后配置 |
 | [docs/slo.md](docs/slo.md) | HTTP 可用性与延迟的多窗口烧录 |
@@ -170,9 +171,9 @@ config/redis/              Redis maxmemory，供内存饱和告警
 examples/demo-app/         已接入 OTel 的示例服务，含业务指标
 deploy/docker-compose/     本地全栈
 deploy/kubernetes/         Kustomize base、dev/prod overlay、agent 工作负载清单
-deploy/terraform/          中心栈与多集群 agent 的 Terraform 入口
+deploy/terraform/          中心栈、接入已有系统、多集群 agent 的 Terraform 入口
 deploy/images.env          镜像钉扎清单
-docs/                      架构、多集群、租户、五层指标目录、接入、处理、倾斜、排障、SLO
+docs/                      架构、多集群、租户、接入已有系统、五层指标目录、接入、处理、倾斜、排障、SLO
 scripts/config-check.sh    配置校验
 ```
 
@@ -389,9 +390,27 @@ Demo 对照（`examples/demo-app`）：
 
 配置在仓库的 `config/`，不在 `deploy/kubernetes/` 里面。Kustomize 默认禁止引用根目录之外的文件，所以 Terraform 内部的构建带 `--load-restrictor LoadRestrictionsNone`。`kubectl apply -k` 没有这个开关，不要拿它当安装入口。
 
-在 `deploy/terraform/stacks/platform`：
+后端如果已经有了，不要用 `stacks/platform`。用 `stacks/attach-existing`。它只装工作负载集群上的 Alloy 和 Collector，并把 `business_line` 对应的仪表盘（`toc-line.json` 或 `tob-line.json`）和告警登记到现有 Grafana。变量和排障在 [docs/attach-existing.md](docs/attach-existing.md)。
 
 ```bash
+cd deploy/terraform/stacks/attach-existing
+cp terraform.tfvars.example terraform.tfvars
+# 编辑 kubeconfig、cluster_name、四条写入地址、tempo_query_url、pyroscope_url、grafana_url。
+# ToC: business_line=toc tenant=consumer org_id=toc
+# ToB: business_line=tob tenant=acme org_id=tob-acme
+export TF_VAR_ingest_token='现有系统的写入口令'
+export TF_VAR_grafana_auth='现有 Grafana 的 API token'
+terraform init
+terraform plan
+terraform apply
+```
+
+这次 apply 不会创建 Prometheus、Loki、Tempo、Pyroscope、Grafana。再加一个集群时，新的 `cluster_name` 和 `kubeconfig` 用另一份状态，并把 `manage_grafana` 设为 `false`。切换 ToB 租户只改 `tenant` 和 `org_id`（例如 `northwind` 和 `tob-northwind`）后再 apply。
+
+我们自己安装中心栈时，在 `deploy/terraform/stacks/platform`：
+
+```bash
+cd deploy/terraform/stacks/platform
 cp terraform.tfvars.example terraform.tfvars
 # 编辑 kubeconfig 路径。不要提交 terraform.tfvars，也不要把 kubeconfig 放进仓库。
 export TF_VAR_grafana_admin_password='用你自己的密码替换'

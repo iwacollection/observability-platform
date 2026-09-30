@@ -55,6 +55,27 @@ spec:
                 configMapKeyRef:
                   name: observability-endpoints
                   key: PYROSCOPE_OTLP_ENDPOINT
+            # Optional. The central ConfigMap omits these keys. A workload
+            # ConfigMap sets them, empty on the platform path and filled in
+            # by stacks/attach-existing.
+            - name: TENANT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: TENANT
+                  optional: true
+            - name: BUSINESS_LINE
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: BUSINESS_LINE
+                  optional: true
+            - name: ORG_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: ORG_ID
+                  optional: true
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:

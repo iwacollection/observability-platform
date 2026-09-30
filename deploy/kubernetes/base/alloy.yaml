@@ -79,6 +79,27 @@ spec:
                 configMapKeyRef:
                   name: observability-endpoints
                   key: LOKI_PUSH_URL
+            # Optional so the central endpoints ConfigMap, which does not
+            # carry these keys, can still start. The workload agent ConfigMap
+            # always has them. Empty means "do not overwrite pod labels".
+            - name: TENANT
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: TENANT
+                  optional: true
+            - name: BUSINESS_LINE
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: BUSINESS_LINE
+                  optional: true
+            - name: ORG_ID
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: ORG_ID
+                  optional: true
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:

@@ -301,6 +301,86 @@ def check_wiring(errors: list[str]) -> None:
             errors.append(f"{kust} references the example secret; Terraform owns prod ingest-auth")
 
 
+def check_attach(errors: list[str]) -> None:
+    """Fail if the attach-existing stack stops wiring the agent and Grafana."""
+    stack = ROOT / "deploy/terraform/stacks/attach-existing"
+    if not stack.is_dir():
+        errors.append("missing deploy/terraform/stacks/attach-existing")
+        return
+    tf_files = sorted(stack.glob("*.tf"))
+    if not tf_files:
+        errors.append("attach-existing stack has no Terraform files")
+        return
+    tf = "\n".join(path.read_text() for path in tf_files)
+    example_path = stack / "terraform.tfvars.example"
+    if not example_path.is_file():
+        errors.append("attach-existing stack is missing terraform.tfvars.example")
+        return
+    example = example_path.read_text()
+
+    for needle in (
+        "modules/cluster_agent",
+        "var.prometheus_remote_write_url",
+        "var.loki_push_url",
+        "var.tempo_otlp_endpoint",
+        "var.pyroscope_url",
+        "var.ingest_token",
+        "var.tenant",
+        "var.business_line",
+        "var.org_id",
+        "toc-line.json",
+        "tob-line.json",
+        'var.business_line == "toc"',
+        "X-Scope-OrgID",
+        "Authorization",
+        "TocPaymentFailureRatio",
+        "TobInvoiceFailureRatio",
+        "TobSeatSaturation",
+        "TobApiQuotaHigh",
+        'output "creates_backends"',
+    ):
+        if needle not in tf:
+            errors.append(f"attach-existing stack does not reference {needle}")
+    if not re.search(r'output "creates_backends"[\s\S]*?value\s*=\s*false', tf):
+        errors.append("attach-existing creates_backends must stay false")
+    for banned in ("modules/central", "hashicorp/kubernetes"):
+        if banned in tf:
+            errors.append(f"attach-existing stack must not reference {banned}")
+    # Mentions inside "do not use" errors are the guard. A URL value is hardcoding.
+    if re.search(r"https?://[^\"'\s]*observability\.svc", tf):
+        errors.append("attach-existing stack hardcodes an in-cluster observability.svc URL")
+    if "example.invalid" not in example:
+        errors.append("attach-existing terraform.tfvars.example must use example.invalid hostnames")
+    for line in example.splitlines():
+        stripped = line.strip()
+        if stripped.startswith("#"):
+            continue
+        if "observability.svc" in stripped:
+            errors.append("attach-existing example sets an in-cluster observability.svc host")
+            break
+    if re.search(r"(?m)^\s*ingest_token\s*=", example) or re.search(r"(?m)^\s*grafana_auth\s*=", example):
+        errors.append("attach-existing example must not assign ingest_token or grafana_auth")
+    if "TF_VAR_ingest_token" not in tf:
+        errors.append("attach-existing variables must document TF_VAR_ingest_token")
+
+    alloy = (ROOT / "config/alloy/config.workload.alloy").read_text()
+    if 'sys.env("TENANT")' not in alloy or 'sys.env("BUSINESS_LINE")' not in alloy or 'sys.env("CLUSTER_NAME")' not in alloy:
+        errors.append("workload alloy must send cluster, tenant, and business_line")
+    if 'sys.env("INGEST_TOKEN")' not in alloy:
+        errors.append("workload alloy must send the bearer token")
+    collector = (ROOT / "config/otel-collector/config.yaml").read_text()
+    if "transform/attach_identity" not in collector:
+        errors.append("collector is missing transform/attach_identity for tenant and business_line")
+    agent = (ROOT / "deploy/terraform/modules/cluster_agent/main.tf").read_text()
+    script = (ROOT / "deploy/terraform/scripts/kubectl-apply.sh").read_text()
+    for needle in ("ENDPOINTS_TENANT", "ENDPOINTS_BUSINESS_LINE", "ENDPOINTS_ORG_ID", "var.tenant", "var.ingest_token"):
+        if needle not in agent:
+            errors.append(f"cluster_agent no longer passes {needle} into the rendered agent")
+    for needle in ("TENANT", "BUSINESS_LINE", "ORG_ID"):
+        if needle not in script:
+            errors.append(f"kubectl-apply.sh does not write {needle} into observability-endpoints")
+
+
 def check_content(errors: list[str], label: str, objects_by_id: dict[tuple[str, str], dict]) -> None:
     dashboards = objects_by_id.get(("ConfigMap", "grafana-dashboards"))
     rules = objects_by_id.get(("ConfigMap", "prometheus-rules"))
@@ -399,6 +479,8 @@ def main() -> None:
     secret_names = [item["name"] for item in agent["components"]["secrets"] if item["kind"] == "Secret"]
     if secret_names != ["ingest-auth"]:
         errors.append("agent inventory must name Secret ingest-auth")
+
+    check_attach(errors)
 
     fail(errors)
     print(

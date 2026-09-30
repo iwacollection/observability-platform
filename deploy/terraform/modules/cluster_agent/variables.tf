@@ -70,5 +70,38 @@ variable "ingest_token" {
 variable "require_ingest_token" {
   type        = bool
   default     = false
-  description = "When true, apply fails unless ingest_token is set. The platform stack sets this for central_overlay=prod."
+  description = "When true, apply fails unless ingest_token is set. The platform stack sets this for central_overlay=prod. The attach-existing stack always sets it."
+}
+
+variable "tenant" {
+  type        = string
+  default     = ""
+  description = "Tenant label stamped on this cluster's telemetry. Empty does not overwrite application labels. Not a user id."
+
+  validation {
+    condition     = var.tenant == "" || can(regex("^[a-z0-9]([a-z0-9-]{0,30}[a-z0-9])?$", var.tenant))
+    error_message = "tenant must be empty or a DNS label."
+  }
+}
+
+variable "business_line" {
+  type        = string
+  default     = ""
+  description = "Business line stamped on this cluster's telemetry. Empty does not overwrite application labels."
+
+  validation {
+    condition     = contains(["", "toc", "tob"], var.business_line)
+    error_message = "business_line must be empty, toc, or tob."
+  }
+}
+
+variable "org_id" {
+  type        = string
+  default     = ""
+  description = "X-Scope-OrgID for this cluster when attaching to an existing Loki, Tempo, or Pyroscope. Empty keeps pod labels and the collector's tenancy routing."
+
+  validation {
+    condition     = var.org_id == "" || can(regex("^[a-z0-9]([a-z0-9-]{0,40}[a-z0-9])?$", var.org_id))
+    error_message = "org_id must be empty or a DNS label such as toc or tob-acme."
+  }
 }
