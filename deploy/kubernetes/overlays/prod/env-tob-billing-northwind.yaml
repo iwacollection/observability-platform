@@ -1,0 +1,12 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tob-billing-northwind
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          env:
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: prod

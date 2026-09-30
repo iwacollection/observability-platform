@@ -55,7 +55,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",http_route!=\"/healthz\"}[5m]))",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\",http_route!=\"/healthz\"}[5m]))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -97,7 +97,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",http_route!=\"/healthz\"}[5m]))",
+          "expr": "sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\",http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum by (service_name) (rate(http_server_request_duration_seconds_count{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\",http_route!=\"/healthz\"}[5m]))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -139,7 +139,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket{cluster=\"$cluster\",http_route!=\"/healthz\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (service_name, le) (rate(http_server_request_duration_seconds_bucket{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\",http_route!=\"/healthz\"}[5m])))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -181,7 +181,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service:http_inflight:sum{cluster=\"$cluster\"}",
+          "expr": "service:http_inflight:sum{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -223,7 +223,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "service:process_cpu_utilization:ratio{cluster=\"$cluster\"}",
+          "expr": "service:process_cpu_utilization:ratio{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -265,7 +265,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "process_runtime_cpython_memory_bytes{cluster=\"$cluster\",type=\"rss\"}",
+          "expr": "process_runtime_cpython_memory_bytes{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\",type=\"rss\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -307,7 +307,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "slo:http_latency_good:ratio_rate5m{cluster=\"$cluster\"}",
+          "expr": "slo:http_latency_good:ratio_rate5m{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -349,7 +349,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "slo:http_errors:ratio_rate5m{cluster=\"$cluster\"}",
+          "expr": "slo:http_errors:ratio_rate5m{cluster=\"$cluster\",business_line=\"$business_line\",tenant=\"$tenant\"}",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -387,6 +387,33 @@
             "text": "local",
             "value": "local"
           }
+        ]
+      },
+      {
+        "name": "business_line",
+        "label": "Business line",
+        "type": "custom",
+        "query": "toc,tob",
+        "includeAll": false,
+        "multi": false,
+        "current": {"selected": true, "text": "toc", "value": "toc"},
+        "options": [
+          {"selected": true, "text": "toc", "value": "toc"},
+          {"selected": false, "text": "tob", "value": "tob"}
+        ]
+      },
+      {
+        "name": "tenant",
+        "label": "Tenant",
+        "type": "custom",
+        "query": "consumer,acme,northwind",
+        "includeAll": false,
+        "multi": false,
+        "current": {"selected": true, "text": "consumer", "value": "consumer"},
+        "options": [
+          {"selected": true, "text": "consumer", "value": "consumer"},
+          {"selected": false, "text": "acme", "value": "acme"},
+          {"selected": false, "text": "northwind", "value": "northwind"}
         ]
       }
     ]

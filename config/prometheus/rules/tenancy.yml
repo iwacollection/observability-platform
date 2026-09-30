@@ -1,0 +1,123 @@
+# Generated from config/tenancy.yaml by scripts/render_tenancy.py.
+# ToC rules select business_line=toc and tenant=consumer.
+# ToB rules select business_line=tob and keep tenant in the aggregation,
+# so acme and northwind are never added together and neither is added to ToC.
+groups:
+  - name: tenancy-recording
+    interval: 30s
+    rules:
+      - record: toc:http_requests:rate5m
+        expr: |
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(http_server_request_duration_seconds_count{business_line="toc",tenant="consumer",http_route!="/healthz"}[5m])
+          )
+
+      - record: tob:http_requests:rate5m
+        expr: |
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(http_server_request_duration_seconds_count{business_line="tob",tenant=~"acme|northwind",http_route!="/healthz"}[5m])
+          )
+
+      - record: toc:payments:failure_ratio5m
+        expr: |
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(business_payments_total{business_line="toc",tenant="consumer",result="failure"}[5m])
+          )
+          /
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(business_payments_total{business_line="toc",tenant="consumer"}[5m])
+          )
+
+      - record: tob:invoices:failure_ratio5m
+        expr: |
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(business_invoices_total{business_line="tob",tenant=~"acme|northwind",result="failure"}[5m])
+          )
+          /
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(business_invoices_total{business_line="tob",tenant=~"acme|northwind"}[5m])
+          )
+
+      - record: tob:seats:active
+        expr: |
+          sum by (cluster, tenant, business_line, service_name, plan) (
+            business_seats_active{business_line="tob",tenant=~"acme|northwind"}
+          )
+
+      - record: tob:seats:utilization
+        expr: |
+          sum by (cluster, tenant, business_line, service_name, plan) (
+            business_seats_active{business_line="tob",tenant=~"acme|northwind"}
+          )
+          /
+          clamp_min(
+            sum by (cluster, tenant, business_line, service_name, plan) (
+              business_seats_limit{business_line="tob",tenant=~"acme|northwind"}
+            ),
+            1
+          )
+
+      - record: tob:api_quota:utilization
+        expr: |
+          sum by (cluster, tenant, business_line, service_name, quota_class) (
+            business_api_quota_used{business_line="tob",tenant=~"acme|northwind"}
+          )
+          /
+          clamp_min(
+            sum by (cluster, tenant, business_line, service_name, quota_class) (
+              business_api_quota_limit{business_line="tob",tenant=~"acme|northwind"}
+            ),
+            1
+          )
+
+  - name: tenancy-alerts
+    rules:
+      - alert: TocPaymentFailureRatio
+        expr: |
+          toc:payments:failure_ratio5m > 0.1
+          and
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(business_payments_total{business_line="toc",tenant="consumer"}[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          layer: business
+        annotations:
+          summary: "ToC payment failure ratio is above 10%"
+          description: "{{ $labels.cluster }} {{ $labels.tenant }} {{ $labels.service_name }} payment failures are above 10%."
+
+      - alert: TobInvoiceFailureRatio
+        expr: |
+          tob:invoices:failure_ratio5m > 0.1
+          and
+          sum by (cluster, tenant, business_line, service_name) (
+            rate(business_invoices_total{business_line="tob",tenant=~"acme|northwind"}[5m])
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          layer: business
+        annotations:
+          summary: "ToB invoice failure ratio is above 10%"
+          description: "{{ $labels.cluster }} tenant {{ $labels.tenant }} {{ $labels.service_name }} invoice failures are above 10%."
+
+      - alert: TobSeatSaturation
+        expr: tob:seats:utilization > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          layer: business
+        annotations:
+          summary: "ToB seat utilization is above 90%"
+          description: "{{ $labels.cluster }} tenant {{ $labels.tenant }} plan {{ $labels.plan }} is above 90% of the seat limit."
+
+      - alert: TobApiQuotaHigh
+        expr: tob:api_quota:utilization > 0.9
+        for: 10m
+        labels:
+          severity: warning
+          layer: business
+        annotations:
+          summary: "ToB API quota utilization is above 90%"
+          description: "{{ $labels.cluster }} tenant {{ $labels.tenant }} class {{ $labels.quota_class }} is above 90% of the quota."

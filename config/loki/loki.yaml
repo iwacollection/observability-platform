@@ -4,7 +4,10 @@
 # schema/limits reference. Do not point a multi-replica deployment at this file:
 # the filesystem store and in-memory ring are single-process.
 
-auth_enabled: false
+# Multi-tenant. Every push and query must send X-Scope-OrgID.
+# Org ids come from config/tenancy.yaml (toc, tob-acme, tob-northwind,
+# platform, rejected). /metrics and /ready stay unauthenticated.
+auth_enabled: true
 
 server:
   http_listen_address: 0.0.0.0
@@ -75,6 +78,8 @@ limits_config:
             - deployment.environment.name
             # One value per cluster. Do not index pod uid, user id, or trace id.
             - cluster
+            - tenant
+            - business_line
 
 compactor:
   working_directory: /loki/compactor

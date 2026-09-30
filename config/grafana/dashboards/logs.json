@@ -46,7 +46,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{service_name=~\"$service_name\"} | json"
+          "expr": "{service_name=~\"$service_name\", business_line=\"toc\", tenant=\"consumer\"} | json"
         }
       ]
     },
@@ -79,7 +79,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{service_name=~\"$service_name\"} | json | level=\"error\" or detected_level=\"error\""
+          "expr": "{service_name=~\"$service_name\", business_line=\"toc\", tenant=\"consumer\"} | json | level=\"error\" or detected_level=\"error\""
         }
       ]
     },
@@ -120,7 +120,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service_name\"}[5m]))",
+          "expr": "sum by (service_name) (count_over_time({service_name=~\"$service_name\", business_line=\"toc\", tenant=\"consumer\"}[5m]))",
           "legendFormat": "{{service_name}}"
         }
       ]

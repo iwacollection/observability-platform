@@ -40,7 +40,7 @@
           },
           "queryType": "profile",
           "profileTypeId": "process_cpu:cpu:nanoseconds:cpu:nanoseconds",
-          "labelSelector": "{service_name=~\"$service_name\"}"
+          "labelSelector": "{service_name=~\"$service_name\", business_line=\"toc\", tenant=\"consumer\", cluster=\"local\"}"
         }
       ]
     },
@@ -67,7 +67,7 @@
           },
           "queryType": "profile",
           "profileTypeId": "memory:alloc_space:bytes:space:bytes",
-          "labelSelector": "{service_name=~\"$service_name\"}"
+          "labelSelector": "{service_name=~\"$service_name\", business_line=\"toc\", tenant=\"consumer\", cluster=\"local\"}"
         }
       ]
     }

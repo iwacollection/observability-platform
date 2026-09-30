@@ -78,9 +78,14 @@ Exemplar：进程设置 `OTEL_METRICS_EXEMPLAR_FILTER=trace_based`，`histogram.
 | `channel`（订单） | `web`、`api`、`other` |
 | `method`（支付） | `card`、`wallet`、`other` |
 | `result`（支付、结账） | `success`、`failure` |
-| `segment`（活跃用户） | `anonymous`、`authenticated` |
+| `segment`（活跃用户，ToC） | `anonymous`、`authenticated` |
+| `result`（发票，ToB） | `success`、`failure` |
+| `plan`（席位，ToB） | `standard`、`enterprise`、`other` |
+| `quota_class`（API 配额，ToB） | `standard`、`enterprise`、`other` |
+| `tenant` | `consumer`（ToC）、`acme`、`northwind`（ToB）。不接受用户 id |
+| `business_line` | `toc`、`tob` |
 
-禁止作为业务标签的键：`user.id`、`order.id`、`customer.id`、`enduser.id`，以及任何订单号、用户号、URL。Collector 的 `attributes/sanitize` 会删这些键；`transform/business_labels` 会把不在表里的业务取值改写掉。
+禁止作为业务标签的键：`user.id`、`order.id`、`customer.id`、`enduser.id`，以及任何订单号、用户号、URL、允许表以外的租户字符串。Collector 的 `attributes/sanitize` 会删这些键；`transform/business_labels` 会把不在表里的业务取值改写掉；`transform/tenancy` 把租户收成允许表或常量 `rejected`。ToC 规则选择 `business_line="toc"`，不会把 ToB 序列算进去。
 
 | 指标 | 类型 | 标签 | OTel 名 | 示例 PromQL | 告警 | 仪表盘 |
 | --- | --- | --- | --- | --- | --- | --- |
@@ -89,7 +94,12 @@ Exemplar：进程设置 `OTEL_METRICS_EXEMPLAR_FILTER=trace_based`，`histogram.
 | `business_checkout_duration_seconds_bucket` | histogram | service_name, result, le | `business.checkout.duration`，单位 `s`，桶见 `CHECKOUT_DURATION_BUCKETS` | `business:checkout_duration:p95_5m` | — | business |
 | `business_users_active` | gauge | service_name, segment | `business.users.active`，单位 `{user}` | `business_users_active` | — | business |
 | `business:payments:success_ratio5m` | recording | service_name | 由 payments counter 派生 | `business:payments:success_ratio5m` | — | business |
-| `business:payments:failure_ratio5m` / `failure_ratio1h` | recording | service_name | 双窗口 | `business:payments:failure_ratio5m > 0.2 and business:payments:failure_ratio1h > 0.1` | BusinessPaymentFailureBurn | business |
+| `business:payments:failure_ratio5m` / `failure_ratio1h` | recording | cluster, tenant, business_line, service_name | 双窗口，ToC 与 ToB 不会加在一起 | `business:payments:failure_ratio5m > 0.2 and business:payments:failure_ratio1h > 0.1` | BusinessPaymentFailureBurn | business |
+| `business_invoices_total` | counter | cluster, tenant, business_line, service_name, result | `business.invoices` | `tob:invoices:failure_ratio5m` | TobInvoiceFailureRatio | tob-line |
+| `business_seats_active` / `business_seats_limit` | gauge | 同上，加 plan | `business.seats.active` / `business.seats.limit` | `tob:seats:utilization` | TobSeatSaturation | tob-line |
+| `business_api_quota_used` / `business_api_quota_limit` | gauge | 同上，加 quota_class | `business.api.quota.used` / `business.api.quota.limit` | `tob:api_quota:utilization` | TobApiQuotaHigh | tob-line |
+| `toc:http_requests:rate5m` | recording | cluster, tenant, business_line, service_name | 只含 `business_line="toc", tenant="consumer"` | `toc:http_requests:rate5m` | — | toc-line |
+| `tob:http_requests:rate5m` | recording | 同上 | 只含 ToB 允许表，按 tenant 拆开 | `tob:http_requests:rate5m` | — | tob-line |
 
 支付失败在 demo 里仍返回 HTTP 200。`/api/error` 才是 HTTP 500。这样业务失败比率不会和 RED 错误比率混成一个数。
 

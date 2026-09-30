@@ -15,6 +15,7 @@ resources:
   - grafana.yaml
   - alloy.yaml
   - demo-app.yaml
+  - business-workloads.yaml
   - node-exporter.yaml
   - kube-state-metrics.yaml
   - middleware.yaml
@@ -34,6 +35,7 @@ configMapGenerator:
     files:
       - alerts.yml=../../../config/prometheus/rules/alerts.yml
       - recording.yml=../../../config/prometheus/rules/recording.yml
+      - tenancy.yml=../../../config/prometheus/rules/tenancy.yml
   - name: alertmanager-config
     files:
       - alertmanager.yml=../../../config/alertmanager/alertmanager.yml
@@ -58,6 +60,7 @@ configMapGenerator:
   - name: grafana-datasources
     files:
       - datasources.yaml=../../../config/grafana/provisioning/datasources/datasources.yaml
+      - tenancy.yaml=../../../config/grafana/provisioning/datasources/tenancy.yaml
   - name: grafana-dashboards-provider
     files:
       - dashboards.yaml=../../../config/grafana/provisioning/dashboards/dashboards.yaml
@@ -66,6 +69,9 @@ configMapGenerator:
       - contact-points.yaml=../../../config/grafana/provisioning/alerting/contact-points.yaml
       - policies.yaml=../../../config/grafana/provisioning/alerting/policies.yaml
       - rules.yaml=../../../config/grafana/provisioning/alerting/rules.yaml
+  - name: observability-tenancy
+    files:
+      - tenancy.yaml=../../../config/tenancy.yaml
   - name: grafana-dashboards
     files:
       - overview.json=../../../config/grafana/dashboards/overview.json
@@ -79,6 +85,8 @@ configMapGenerator:
       - application.json=../../../config/grafana/dashboards/application.json
       - business.json=../../../config/grafana/dashboards/business.json
       - meta.json=../../../config/grafana/dashboards/meta.json
+      - toc-line.json=../../../config/grafana/dashboards/toc-line.json
+      - tob-line.json=../../../config/grafana/dashboards/tob-line.json
 generatorOptions:
   annotations:
     app.kubernetes.io/part-of: observability-platform

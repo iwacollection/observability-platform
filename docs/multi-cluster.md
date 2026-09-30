@@ -1,6 +1,6 @@
 # 多集群
 
-中心只有一套可观测栈。工作负载集群各自跑采集 agent，把指标、日志、链路和 Profile 送到这套栈，并带上标签 `cluster`。中心进程仍是单副本、本地盘。这份文档不把 Prometheus 拆成 Mimir，也不打开对象存储。
+中心只有一套可观测栈。工作负载集群各自跑采集 agent，把指标、日志、链路和 Profile 送到这套栈，并带上标签 `cluster`。同一条管道上还有业务线 `business_line` 和租户 `tenant`：ToC 是合成租户 `consumer`，ToB 是允许表里的企业客户。日志和链路用 `X-Scope-OrgID` 分 org，指标在 Prometheus 里靠标签分开。中心进程仍是单副本、本地盘。这份文档不把 Prometheus 拆成 Mimir，也不打开对象存储。租户模型、接入步骤和「某个租户没有数」在 [tenancy.md](tenancy.md)。
 
 ## 拓扑
 
@@ -128,7 +128,7 @@ topk(5, count by (cluster) ({__name__=~".+"}))
 topk(10, count by (__name__) ({cluster="prod-a"}))
 ```
 
-日志侧，Loki 仍是单租户。流的差别在标签组合。`{cluster="prod-a"}` 的流数远高于 `{cluster="prod-b"}` 时，先看 prod-a 有没有把 trace id 或用户 id 放进 stream label。索引里允许的低基数标签包括 `cluster`，不包括 pod uid。
+日志按 `X-Scope-OrgID` 分 org，见 [tenancy.md](tenancy.md)。同一个 org 里，流的差别仍在标签组合。`{cluster="prod-a"}` 的流数远高于 `{cluster="prod-b"}` 时，先看 prod-a 有没有把 trace id 或用户 id 放进 stream label。索引里允许的低基数标签包括 `cluster`、`tenant`、`business_line`，不包括 pod uid。查的时候要带对 org 的请求头，否则看的是另一个租户的空结果。
 
 告警 `PrometheusHighSeries` 和 `LokiStreamChurn` 看的是中心进程。它们响的时候，先按 `cluster` 拆开，再决定是哪一个工作负载在写垃圾标签。不要把阈值调高来盖住某一个集群。
 

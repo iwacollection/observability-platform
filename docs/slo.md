@@ -1,6 +1,6 @@
 # SLO 示例
 
-示例服务是 demo-app，目标也可以套到任何发出 `http.server.request.duration` 的服务。规则在 `config/prometheus/rules/recording.yml` 和 `alerts.yml`。`/healthz` 不计入。
+示例覆盖 ToC 的 `toc-api` 和 ToB 的 admin/billing。规则在 `config/prometheus/rules/recording.yml`、`alerts.yml` 和 `tenancy.yml`。聚合保留 `cluster`、`tenant`、`business_line`。`/healthz` 不计入。ToC 记录规则 `toc:http_requests:rate5m` 不会把 ToB 的样本算进去。
 
 ## 目标
 

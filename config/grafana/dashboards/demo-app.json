@@ -53,7 +53,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"demo-app\",http_route!=\"/healthz\"}[5m]))",
+          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"toc-api\",business_line=\"toc\",tenant=\"consumer\",http_route!=\"/healthz\"}[5m]))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -94,7 +94,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"demo-app\",http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"demo-app\",http_route!=\"/healthz\"}[5m]))",
+          "expr": "sum(rate(http_server_request_duration_seconds_count{service_name=\"toc-api\",business_line=\"toc\",tenant=\"consumer\",http_route!=\"/healthz\",http_response_status_code=~\"5..\"}[5m])) / sum(rate(http_server_request_duration_seconds_count{service_name=\"toc-api\",business_line=\"toc\",tenant=\"consumer\",http_route!=\"/healthz\"}[5m]))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -135,7 +135,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"demo-app\",http_route!=\"/healthz\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_server_request_duration_seconds_bucket{service_name=\"toc-api\",business_line=\"toc\",tenant=\"consumer\",http_route!=\"/healthz\"}[5m])))",
           "legendFormat": "{{service_name}}"
         }
       ]
@@ -177,7 +177,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{service_name=\"demo-app\"}[5m]))",
+          "expr": "sum by (http_route) (rate(http_server_request_duration_seconds_count{service_name=\"toc-api\",business_line=\"toc\",tenant=\"consumer\"}[5m]))",
           "legendFormat": "{{http_route}}"
         }
       ]
@@ -219,7 +219,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (http_route, le) (rate(http_server_request_duration_seconds_bucket{service_name=\"demo-app\",http_route!=\"/healthz\"}[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (http_route, le) (rate(http_server_request_duration_seconds_bucket{service_name=\"toc-api\",business_line=\"toc\",tenant=\"consumer\",http_route!=\"/healthz\"}[5m])))",
           "legendFormat": "{{http_route}}"
         }
       ]
@@ -253,7 +253,7 @@
             "type": "loki",
             "uid": "loki"
           },
-          "expr": "{service_name=\"demo-app\"} | json"
+          "expr": "{service_name=\"toc-api\",business_line=\"toc\",tenant=\"consumer\"} | json"
         }
       ]
     },

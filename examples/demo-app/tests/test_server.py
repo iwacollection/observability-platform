@@ -9,7 +9,14 @@ import urllib.request
 os.environ["OTEL_ENABLED"] = "false"
 os.environ.pop("PYROSCOPE_SERVER_ADDRESS", None)
 
-from demo_app.business import BusinessRecorder, order_attributes, payment_attributes  # noqa: E402
+from demo_app.business import (  # noqa: E402
+    BusinessRecorder,
+    order_attributes,
+    payment_attributes,
+    quota_attributes,
+    seat_attributes,
+)
+from demo_app.identity import resolve  # noqa: E402
 from demo_app.server import (  # noqa: E402
     TELEMETRY,
     _bounded_float,
@@ -181,3 +188,47 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(payments.calls[0][2], {"method": "card", "result": "failure"})
         self.assertEqual(active.calls[0][2], {"segment": "authenticated"})
         self.assertGreaterEqual(checkout.calls[0][1], 0.0)
+
+    def test_health_reports_bounded_tenant(self) -> None:
+        status, body = handle_request("GET", "/healthz", {"tenant": ["user-42"], "user_id": ["9"]})
+        self.assertEqual(status, 200)
+        self.assertEqual(body["business_line"], "toc")
+        self.assertEqual(body["tenant"], "consumer")
+        self.assertNotIn("user-42", body.values())
+
+
+class IdentityTests(unittest.TestCase):
+    def test_allow_list(self) -> None:
+        self.assertEqual(resolve("toc", "user-42", "api")["tenant"], "consumer")
+        self.assertEqual(resolve("toc", "acme", "checkout")["org_id"], "toc")
+        self.assertEqual(resolve("tob", "acme", "admin")["org_id"], "tob-acme")
+        self.assertEqual(resolve("tob", "northwind", "billing")["tenant"], "northwind")
+        rejected = resolve("tob", "user-42", "billing")
+        self.assertEqual(rejected["tenant"], "rejected")
+        self.assertEqual(rejected["org_id"], "rejected")
+        self.assertNotIn("user-42", rejected.values())
+        self.assertEqual(resolve("nope", "acme", "admin")["business_line"], "rejected")
+
+    def test_tob_routes_do_not_take_raw_ids(self) -> None:
+        import demo_app.server as server
+
+        previous = server.APP_IDENTITY
+        server.APP_IDENTITY = resolve("tob", "user-99", "billing")
+        try:
+            self.assertEqual(server.APP_IDENTITY["tenant"], "rejected")
+            self.assertNotIn("user-99", server.APP_IDENTITY.values())
+            server.APP_IDENTITY = resolve("tob", "acme", "billing")
+            status, body = handle_request("GET", "/api/invoices", {"fail": ["1"], "customer": ["u-1"]})
+            self.assertEqual(status, 200)
+            self.assertEqual(body["result"], "failure")
+            self.assertNotIn("u-1", body.values())
+            self.assertEqual(seat_attributes("custom-plan-999"), {"plan": "other"})
+            self.assertEqual(quota_attributes("tenant-acme-user"), {"quota_class": "other"})
+            server.APP_IDENTITY = resolve("tob", "northwind", "admin")
+            status, body = handle_request("GET", "/api/seats", {"plan": ["enterprise"], "count": ["3"], "limit": ["10"]})
+            self.assertEqual(status, 200)
+            self.assertEqual(body["plan"], "enterprise")
+            status, body = handle_request("GET", "/api/work", {})
+            self.assertEqual(status, 404)
+        finally:
+            server.APP_IDENTITY = previous

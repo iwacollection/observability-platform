@@ -67,7 +67,7 @@ flowchart LR
 
 `/healthz` 会打点和打 span，但记录规则和 SLO 告警把它排除在外，避免探针稀释错误预算。
 
-中心栈和 Compose 的 `cluster` 标签是 `local`。工作负载集群在离开本集群之前把同一个标签写成自己的名字。细节在 [multi-cluster.md](multi-cluster.md)。
+中心栈和 Compose 的 `cluster` 标签是 `local`。工作负载集群在离开本集群之前把同一个标签写成自己的名字。业务线 `business_line` 和租户 `tenant` 同样在离开集群之前写上。Loki 与 Tempo 再用 `X-Scope-OrgID` 把日志和链路分进不同 org。细节在 [multi-cluster.md](multi-cluster.md) 和 [tenancy.md](tenancy.md)。
 
 ## 不在这套单机拓扑里的东西
 
@@ -86,8 +86,8 @@ flowchart LR
 | --- | --- | --- |
 | 基础 | node_exporter job `node`；Alloy unix 是 job `alloy-unix` 的副本；Kubernetes 上 cAdvisor 与 kube-state-metrics | `infrastructure` 告警组，仪表盘 UID `infrastructure` |
 | 中间件 | Redis、PostgreSQL、Nginx、Kafka 的 exporter，静态抓取 | `middleware` 组，UID `middleware` |
-| 应用 | demo 的 OTLP 直方图、在途请求、进程运行时 | `http-red` 与 SLO，UID `application` |
-| 业务 | demo 的 `business.*` 仪器，标签允许表在应用和 Collector | `business` 组，UID `business` |
+| 应用 | ToC api/checkout 与 ToB admin/billing 的 RED、直方图、在途请求、进程运行时 | `http-red` 与 SLO，UID `application`、`toc-line`、`tob-line`。聚合保留 `cluster`、`tenant`、`business_line` |
+| 业务 | ToC 的订单、支付、结账；ToB 的发票、席位、API 配额 | `business` 组与 `tenancy-alerts`，UID `business`、`toc-line`、`tob-line` |
 | 自身 | 各组件 `/metrics`，Collector `8888` | `meta-pipeline` 组，UID `meta` |
 
 kube-state-metrics 只在 Kubernetes 上由 Alloy 远程写入。Compose 的 Prometheus 配置不写这个目标，避免没有 API server 时 `TargetDown` 一直响。

@@ -8,7 +8,7 @@
 
 - 在一台机器上把整套信号打通，确认应用接法、告警表达式和仪表盘。
 - 把同一份配置推进到一个 Kubernetes 命名空间，作为单副本、本地盘的起步环境。
-- 给还没有观测接入的服务一份对照实现：`examples/demo-app`。
+- 给还没有观测接入的服务一份对照实现：`examples/demo-app`。它现在同时代表 ToC（`toc-api`、`toc-checkout`）和 ToB（`tob-admin`、`tob-billing`，租户 `acme`）。目录在 `config/tenancy.yaml`，说明在 [docs/tenancy.md](docs/tenancy.md)。
 
 不做什么：
 
@@ -48,11 +48,11 @@ flowchart LR
   am --> graf
 ```
 
-更细的职责划分、标签约定和「为什么 Compose 与 Kubernetes 能共用配置」写在 [docs/architecture.md](docs/architecture.md)。多集群的标签合同、网络路径和排障写在 [docs/multi-cluster.md](docs/multi-cluster.md)。
+更细的职责划分、标签约定和「为什么 Compose 与 Kubernetes 能共用配置」写在 [docs/architecture.md](docs/architecture.md)。多集群的标签合同、网络路径和排障写在 [docs/multi-cluster.md](docs/multi-cluster.md)。多业务线和租户在 [docs/tenancy.md](docs/tenancy.md)。
 
 ### 多集群
 
-一套中心栈，加上任意多个工作负载集群。工作负载集群不跑 Prometheus / Loki / Tempo / Pyroscope / Grafana。它们只跑 Alloy 和 Collector，把指标、日志、链路、Profile 送到中心端点，并带上低基数标签 `cluster`。
+一套中心栈，加上任意多个工作负载集群，同时观察多条业务线。工作负载集群不跑 Prometheus / Loki / Tempo / Pyroscope / Grafana。它们只跑 Alloy 和 Collector，把指标、日志、链路、Profile 送到中心端点，并带上低基数标签 `cluster`、`business_line` 和 `tenant`。日志和链路再按 `X-Scope-OrgID` 进入不同 org。ToC 的租户是 `consumer`。ToB 的租户来自允许表（`acme`、`northwind`），不会把两个企业客户或 ToB 与 ToC 加在一起。
 
 ```mermaid
 flowchart LR
@@ -156,6 +156,7 @@ Compose 仍然是一台机器上的中心栈，`cluster` 固定为 `local`。Age
 ## 3. 目录结构
 
 ```text
+config/tenancy.yaml         业务线、租户、服务和集群落点。生成器读这份文件
 config/otel-collector/     Collector 网关配置
 config/alloy/              本地 config.alloy 与 Kubernetes config.k8s.alloy
 config/prometheus/         prometheus.yml、告警、记录规则、promtool 测试
@@ -171,7 +172,7 @@ deploy/docker-compose/     本地全栈
 deploy/kubernetes/         Kustomize base、dev/prod overlay、agent 工作负载清单
 deploy/terraform/          中心栈与多集群 agent 的 Terraform 入口
 deploy/images.env          镜像钉扎清单
-docs/                      架构、多集群、五层指标目录、接入、处理、倾斜、排障、SLO
+docs/                      架构、多集群、租户、五层指标目录、接入、处理、倾斜、排障、SLO
 scripts/config-check.sh    配置校验
 ```
 
@@ -209,7 +210,10 @@ make up
 等价于：
 
 ```bash
-docker compose -f deploy/docker-compose/docker-compose.yml up -d --build
+docker compose \
+  -f deploy/docker-compose/docker-compose.yml \
+  -f deploy/docker-compose/businesses.yml \
+  up -d --build
 ```
 
 第一次会构建 demo 镜像。看状态：
@@ -240,10 +244,10 @@ curl -sS -o /dev/null -w "%{http_code}\n" http://127.0.0.1:8080/api/error
 预期能看到：
 
 - Grafana 文件夹 **Observability** 里有 Overview、Logs、Traces、Profiles、Host and containers、Demo app，以及五层仪表盘 Infrastructure、Middleware、Application RED、Business、Observability pipeline。
-- **Demo app** 仪表盘上 `service_name="demo-app"` 的 QPS、错误率和 p95。指标大约每 5 秒导出一次。
-- **Logs** 里 `{service_name="demo-app"}` 的 JSON 行。点开带 `trace_id` 的行可以跳到 Tempo。
-- **Traces** 里 TraceQL `{ resource.service.name = "demo-app" }`。`/api/error` 的 span 状态是 ERROR。
-- **Profiles** 里 `service_name` 为 demo-app 的 CPU 火焰图。`/api/work` 会调用 `burn_cpu`，栈上应该能看到它。
+- **Demo app** 仪表盘上 `service_name="toc-api"`、`tenant="consumer"` 的 QPS、错误率和 p95。指标大约每 5 秒导出一次。ToB 看仪表盘 **ToB 业务线**。
+- **Logs** 里 `{service_name="toc-api", tenant="consumer"}` 的 JSON 行（数据源 uid `loki` 是 org `toc`）。点开带 `trace_id` 的行可以跳到 Tempo。
+- **Traces** 里 TraceQL `{ resource.service.name = "toc-api" && resource.tenant = "consumer" }`。`/api/error` 的 span 状态是 ERROR。
+- **Profiles** 里 `service_name` 为 `toc-api`、`tenant` 为 `consumer` 的 CPU 火焰图。`/api/work` 会调用 `burn_cpu`，栈上应该能看到它。
 - Prometheus http://127.0.0.1:9090 规则页能看到 `TargetDown`、`HighErrorRate` 等。Alertmanager http://127.0.0.1:9093 能看到触发的告警，但默认不外发。
 
 停掉并保留数据卷：
@@ -301,16 +305,16 @@ make down
 
 ### Loki
 
-文件：`config/loki/loki.yaml`。单进程、TSDB、文件系统、`auth_enabled: false`。
+文件：`config/loki/loki.yaml`。单进程、TSDB、文件系统、`auth_enabled: true`。每个写入和查询都要带 `X-Scope-OrgID`。org 来自 `config/tenancy.yaml`：`toc`、`tob-acme`、`tob-northwind`、`platform`、`rejected`。`/metrics` 和 `/ready` 不走这道认证。
 
 - `limits_config.retention_period: 168h`，compactor 打开 retention。
-- OTLP 资源属性 `service.name`、`service.namespace`、`deployment.environment` 等提升为索引标签，点号会变成下划线，所以 LogQL 写 `{service_name="demo-app"}`。
+- OTLP 资源属性 `service.name`、`service.namespace`、`deployment.environment`、`cluster`、`tenant`、`business_line` 提升为索引标签，点号会变成下划线，所以 LogQL 写 `{service_name="toc-api", tenant="consumer"}`。查询必须带该 org 的 `X-Scope-OrgID`。
 - `pattern_ingester` 按上游本地配置打开，用来做日志模式聚合。不需要可以设 `enabled: false`。
 - 多副本、对象存储、成员列表不要改这个文件硬上。用 Grafana Loki Helm chart（社区仓库 `grafana-community/helm-charts`，chart 默认仍是单体模式，生产再改成 scalable）。
 
 ### Tempo
 
-文件：`config/tempo/tempo.yaml`。`-target=all`，本地块存储。
+文件：`config/tempo/tempo.yaml`。`-target=all`，本地块存储，`multitenancy_enabled: true`。Collector 按租户把 `X-Scope-OrgID` 送到 OTLP。span metrics 的维度包含 `cluster`、`tenant`、`business_line`。
 
 - OTLP 听在 `0.0.0.0:4317/4318`，避免 Kubernetes 里 Pod 主机名不是 `tempo` 时绑不上端口。
 - 块保留使用 Tempo 3 的默认 14 天。`backend_worker.compaction.block_retention` 可以改这个值，但单二进制本地模式没有 backend scheduler，不要在这份文件里单独打开 worker。
@@ -329,7 +333,7 @@ make down
 
 Provisioning 在 `config/grafana/provisioning/`。
 
-- 数据源 UID 固定为 `prometheus`、`loki`、`tempo`、`pyroscope`、`alertmanager`。仪表盘和告警都引用这些 UID，改名要一起改。
+- 数据源 UID：`prometheus` 仍是一套，靠标签区分租户。`loki` 和 `tempo` 固定查 org `toc`。ToB 每个租户另有 `loki-tob-acme`、`tempo-tob-acme`、`loki-tob-northwind`、`tempo-tob-northwind`。基础设施日志是 `loki-platform`。配错的租户在 `loki-rejected` 和 `tempo-rejected`。头里的值是 org id，不是密码。
 - Tempo 数据源配置了 traces 到 logs、profiles、metrics 的跳转，以及 service map。
 - Loki 派生字段用正则 `"trace_id":"([0-9a-f]+)"` 跳到 Tempo。
 - 匿名访问关闭，不允许注册。功能开关 `traceToProfiles` 和 `tracesEmbeddedFlameGraph` 用来从 trace 看火焰图。
@@ -349,7 +353,10 @@ Demo 对照（`examples/demo-app`）：
 
 | 环境变量 | 含义 |
 | --- | --- |
-| `OTEL_SERVICE_NAME` | 资源属性 `service.name`，默认 `demo-app` |
+| `OTEL_SERVICE_NAME` | 资源属性 `service.name`。Compose 的 ToC api 是 `toc-api`。未设置时单测默认 `demo-app` |
+| `BUSINESS_LINE` | `toc` 或 `tob`。未设置时按 `toc` |
+| `TENANT_ID` | ToC 会被收成 `consumer`。ToB 只能是允许表里的 id，否则标签是 `rejected`，原始字符串不会留下 |
+| `SERVICE_ROLE` | `api`、`checkout`、`admin`、`billing` |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | 例如 `http://otel-collector:4317` |
 | `OTEL_METRIC_EXPORT_INTERVAL` | 毫秒，本地默认 5000 |
 | `DEPLOYMENT_ENVIRONMENT` | 资源属性 `deployment.environment` |
@@ -365,7 +372,10 @@ Demo 对照（`examples/demo-app`）：
 | `GET /api/slow?seconds=0.8` | 200，用来拉高延迟。`seconds` 最大 5 |
 | `GET /api/error` | 500 |
 | `GET /api/orders?channel=web` | 200，记 `business_orders_created_total`。channel 只允许 `web`、`api`，其他收成 `other` |
-| `GET /api/checkout?method=card&fail=0&segment=anonymous&delay_ms=0` | 200。记支付结果、结账延迟和活跃用户。`fail=1` 仍是 HTTP 200，失败写在业务指标的 `result="failure"` |
+| `GET /api/checkout?method=card&fail=0&segment=anonymous&delay_ms=0` | 200。记支付结果、结账延迟和活跃用户。`fail=1` 仍是 HTTP 200，失败写在业务指标的 `result="failure"`。ToC api 和 `toc-checkout`（`:8081`）都提供 |
+| `GET /api/invoices?fail=0` | ToB billing（Compose `:8083`，租户 `acme`）。记 `business_invoices_total` |
+| `GET /api/seats?plan=standard&count=1&limit=100` | ToB admin（`:8082`）。记席位占用，`plan` 只允许 `standard`、`enterprise` |
+| `GET /api/quota?class=standard&used=0&limit=1000` | ToB admin。记 API 配额。`used` 和 `limit` 是数值，不是标签 |
 
 业务标签允许表和 Collector 里的改写规则在 [docs/onboarding.md](docs/onboarding.md)。不要把用户 id 或订单 id 加进标签。
 
@@ -488,7 +498,9 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 | `traces.json` | traces | TraceQL 表、span metrics、service graph |
 | `profiles.json` | profiles | CPU 与内存火焰图 |
 | `host.json` | host | 主机 CPU、负载、磁盘、网卡，以及 cAdvisor 容器 CPU/内存。主机查询限定 `job="node"` |
-| `demo-app.json` | demo-app | demo 的 RED、日志和 TraceQL |
+| `demo-app.json` | demo-app | ToC api 的 RED、日志和 TraceQL，`service_name="toc-api"` |
+| `toc-line.json` | toc-line | ToC 五层：基础设施、中间件、RED、支付、管道 |
+| `tob-line.json` | tob-line | ToB 五层：同一集群信号，加上发票、席位、配额。`tenant` 单选 |
 | `infrastructure.json` | infrastructure | 主机饱和、磁盘、node_exporter 存活、Kubernetes 对象、容器 |
 | `middleware.json` | middleware | Redis、PostgreSQL、Nginx、Kafka |
 | `application.json` | application | RED、在途请求、进程 CPU/内存、SLO 记录规则 |
@@ -503,7 +515,7 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 - Compose 把端口绑在 `127.0.0.1`。这只防护宿主机网卡，不防护已经在 Docker 网络里的容器。
 - 本地 Grafana 默认 `admin` / `admin`。这个组合只允许出现在你自己的笔记本上。Kubernetes 必须先建 Secret。
 - Prometheus remote write、Loki、Tempo、Pyroscope、Collector 都没有认证。不要把 9090、3100、3200、4040、4317 暴露到公网或集群外。
-- Loki `auth_enabled: false` 表示单租户。前面要加网关再给别人用。
+- Loki `auth_enabled: true`，Tempo `multitenancy_enabled: true`。org id 是允许表，不是用户 id，也不是口令。前面仍然没有鉴权网关，不要把 9090、3100、3200、4040、4317 暴露到公网。
 - Alloy 为了主机指标把宿主机根目录只读挂进容器，Kubernetes 里还以 root 跑 DaemonSet。这是节点代理的权限，不是应用的权限。应用 Deployment 关掉了 ServiceAccount token，根文件系统只读，丢掉全部 capabilities。
 - cAdvisor 走 API server 代理，使用集群 CA，而不是 `insecure_skip_verify` 直连 kubelet。
 - 示例 webhook 使用 `.invalid`，避免误打到真实地址。把它换成内网地址之前，先确认 NetworkPolicy 的出站是否仍然全开。
@@ -529,7 +541,8 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 | Grafana 没有点 | demo 是否在跑，`make load` 是否打过，Collector 日志里 remote write 是否成功 |
 | 有 trace 没有指标 | Prometheus 是否带 `--web.enable-remote-write-receiver`，指标名是否仍是 `http_server_request_duration_seconds` |
 | 有日志没有 trace 跳转 | 日志正文里是否有 `"trace_id":"..."`，数据源派生字段有没有被改掉 |
-| 火焰图为空 | `PYROSCOPE_SERVER_ADDRESS` 是否指向 `http://pyroscope:4040`，选择器是不是 `{service_name="demo-app"}` |
+| 火焰图为空 | `PYROSCOPE_SERVER_ADDRESS` 是否指向 `http://pyroscope:4040`，选择器是不是 `{service_name="toc-api", tenant="consumer", cluster="local"}` |
+| 只有 ToC 没有 ToB | 数据源是不是 uid `loki` / `tempo`（只查 org `toc`）。ToB 用 `loki-tob-acme`。步骤在 [docs/tenancy.md](docs/tenancy.md) |
 | `TargetDown` | Prometheus 目标页。Compose DNS 和 Kubernetes Service 名必须一致 |
 | 主机面板是空的 | node-exporter 是否起来。告警和仪表盘读 `job="node"`，不是 Alloy 的 `job="alloy-unix"` |
 | `DiskSpaceLow` 从不响 | `node_filesystem_*{job="node"}` 是否存在 |
@@ -571,7 +584,7 @@ make test
 1. 基础：node_exporter（job `node`），Kubernetes 上还有 cAdvisor 和 kube-state-metrics。
 2. 中间件：Redis、PostgreSQL、Nginx、Kafka，以及各自的 exporter。
 3. 应用：demo 的 RED、显式直方图桶、在途请求、进程运行时、trace exemplar。
-4. 业务：订单、支付、结账延迟、活跃用户，标签允许表写在应用和 Collector 里。
+4. 业务：ToC 是订单、支付、结账延迟、活跃用户。ToB 是发票、席位、API 配额。聚合保留 `tenant` 和 `cluster`，ToB 租户之间、ToB 与 ToC 之间都不相加。
 5. 自身：Collector、Prometheus、Loki、Tempo、Pyroscope、Grafana、Alertmanager、Alloy 的管道指标和告警。
 
 多集群已经接在这个仓库里：中心栈仍是单副本本地盘，工作负载集群通过 Terraform 把 agent 指到中心端点。还没做的是把中心进程拆成多副本。
@@ -581,4 +594,4 @@ make test
 3. 指标从单机 Prometheus 迁到 Mimir（或 Thanos）。规则文件可以原样挂到 Mimir ruler。
 4. 日志改 Loki scalable 模式加对象存储；链路改 Tempo 分布式；Profile 改 Pyroscope 微服务。用对应 Helm chart，不要复制本仓库的 Deployment 去凑副本。
 5. 采集层保持现在的分工：Alloy 做节点，Collector 做网关。应用继续只认 OTLP。
-6. SLO 从 demo-app 抄到真实服务时，只改 `service_name` 选择器和预算数字，烧录结构留在 [docs/slo.md](docs/slo.md)。业务失败比抄 `business:payments:failure_ratio5m`，不要新开一组高基数标签。
+6. SLO 抄到真实服务时，保留 `cluster`、`tenant`、`business_line`，只改 `service_name` 选择器和预算数字，烧录结构留在 [docs/slo.md](docs/slo.md)。ToC 失败比用 `toc:payments:failure_ratio5m`，ToB 发票用 `tob:invoices:failure_ratio5m`。不要新开一组高基数标签，也不要把两个租户加在一起。

@@ -40,9 +40,12 @@ prometheus.remote_write "prometheus" {
 // Same log push the Kubernetes agent uses. Compose has no pod log source;
 // application logs go through the collector. The block stays so the local
 // agent config shows the central Loki path.
+// Loki auth is on. This agent has no per-pod stream, so the platform org
+// is a static tenant id. Business logs go through the collector instead.
 loki.write "central" {
 	endpoint {
-		url = sys.env("LOKI_PUSH_URL")
+		url       = sys.env("LOKI_PUSH_URL")
+		tenant_id = "platform"
 	}
 
 	external_labels = {

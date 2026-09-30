@@ -332,16 +332,16 @@ groups:
       - alert: HighErrorRate
         expr: |
           (
-            sum by (cluster, service_name) (
+            sum by (cluster, tenant, business_line, service_name) (
               rate(http_server_request_duration_seconds_count{http_route!="/healthz",http_response_status_code=~"5.."}[5m])
             )
             /
-            sum by (cluster, service_name) (
+            sum by (cluster, tenant, business_line, service_name) (
               rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
             )
           ) > 0.05
           and
-          sum by (cluster, service_name) (
+          sum by (cluster, tenant, business_line, service_name) (
             rate(http_server_request_duration_seconds_count{http_route!="/healthz"}[5m])
           ) > 0.1
         for: 5m
@@ -356,7 +356,7 @@ groups:
         expr: |
           histogram_quantile(
             0.95,
-            sum by (cluster, service_name, le) (
+            sum by (cluster, tenant, business_line, service_name, le) (
               rate(http_server_request_duration_seconds_bucket{http_route!="/healthz"}[5m])
             )
           ) > 0.5
@@ -369,7 +369,7 @@ groups:
           description: "{{ $labels.service_name }} p95 latency is {{ $value | humanizeDuration }}."
 
       - alert: AppInFlightSaturation
-        expr: sum by (cluster, service_name) (http_server_active_requests) > 100
+        expr: sum by (cluster, tenant, business_line, service_name) (http_server_active_requests) > 100
         for: 5m
         labels:
           severity: warning
@@ -393,12 +393,12 @@ groups:
       - alert: BusinessPaymentFailureRatio
         expr: |
           (
-            sum by (cluster, service_name) (rate(business_payments_total{result="failure"}[5m]))
+            sum by (cluster, tenant, business_line, service_name) (rate(business_payments_total{result="failure"}[5m]))
             /
-            sum by (cluster, service_name) (rate(business_payments_total[5m]))
+            sum by (cluster, tenant, business_line, service_name) (rate(business_payments_total[5m]))
           ) > 0.1
           and
-          sum by (cluster, service_name) (rate(business_payments_total[5m])) > 0.05
+          sum by (cluster, tenant, business_line, service_name) (rate(business_payments_total[5m])) > 0.05
         for: 5m
         labels:
           severity: warning
@@ -453,7 +453,7 @@ groups:
           description: "New series are being created faster than 50/s over 10 minutes."
 
       - alert: LokiSamplesDiscarded
-        expr: sum by (cluster, reason) (rate(loki_discarded_samples_total[5m])) > 0
+        expr: sum by (cluster, tenant, reason) (rate(loki_discarded_samples_total[5m])) > 0
         for: 5m
         labels:
           severity: warning
@@ -473,7 +473,7 @@ groups:
           description: "New log streams exceed 50/s. A label value is probably unbounded."
 
       - alert: TempoSpansDiscarded
-        expr: sum by (cluster, reason) (rate(tempo_discarded_spans_total[5m])) > 0
+        expr: sum by (cluster, tenant, reason) (rate(tempo_discarded_spans_total[5m])) > 0
         for: 5m
         labels:
           severity: warning

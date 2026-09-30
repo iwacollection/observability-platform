@@ -1,0 +1,99 @@
+# Generated from config/tenancy.yaml by scripts/render_tenancy.py.
+# Header values are org ids from the allow-list, not credentials.
+# Grafana stores them under secureJsonData because that is how a
+# datasource sends X-Scope-OrgID. Do not put passwords in this file.
+apiVersion: 1
+datasources:
+- name: Loki platform
+  uid: loki-platform
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+  secureJsonData:
+    httpHeaderValue1: platform
+- name: Loki rejected
+  uid: loki-rejected
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+  secureJsonData:
+    httpHeaderValue1: rejected
+- name: Tempo rejected
+  uid: tempo-rejected
+  type: tempo
+  access: proxy
+  url: http://tempo:3200
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpMethod: GET
+  secureJsonData:
+    httpHeaderValue1: rejected
+- name: Loki tob-acme
+  uid: loki-tob-acme
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+  secureJsonData:
+    httpHeaderValue1: tob-acme
+- name: Tempo tob-acme
+  uid: tempo-tob-acme
+  type: tempo
+  access: proxy
+  url: http://tempo:3200
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpMethod: GET
+    tracesToLogsV2:
+      datasourceUid: loki-tob-acme
+      filterByTraceID: true
+      filterBySpanID: false
+    tracesToMetrics:
+      datasourceUid: prometheus
+    serviceMap:
+      datasourceUid: prometheus
+    nodeGraph:
+      enabled: true
+  secureJsonData:
+    httpHeaderValue1: tob-acme
+- name: Loki tob-northwind
+  uid: loki-tob-northwind
+  type: loki
+  access: proxy
+  url: http://loki:3100
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+  secureJsonData:
+    httpHeaderValue1: tob-northwind
+- name: Tempo tob-northwind
+  uid: tempo-tob-northwind
+  type: tempo
+  access: proxy
+  url: http://tempo:3200
+  editable: false
+  jsonData:
+    httpHeaderName1: X-Scope-OrgID
+    httpMethod: GET
+    tracesToLogsV2:
+      datasourceUid: loki-tob-northwind
+      filterByTraceID: true
+      filterBySpanID: false
+    tracesToMetrics:
+      datasourceUid: prometheus
+    serviceMap:
+      datasourceUid: prometheus
+    nodeGraph:
+      enabled: true
+  secureJsonData:
+    httpHeaderValue1: tob-northwind

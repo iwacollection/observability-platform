@@ -1,0 +1,517 @@
+# Generated from config/tenancy.yaml by scripts/render_tenancy.py.
+# toc-api is deploy/kubernetes/base/demo-app.yaml (service demo-app).
+# replicas 0 keeps a tenant in the catalog without scheduling pods.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: toc-checkout
+  labels:
+    app.kubernetes.io/name: toc-checkout
+    observability.platform/business-line: toc
+    observability.platform/tenant: consumer
+    observability.platform/org-id: toc
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: toc-checkout
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: toc-checkout
+        observability.platform/business-line: toc
+        observability.platform/tenant: consumer
+        observability.platform/org-id: toc
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: demo-app:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: toc-checkout
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: dev
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
+            - name: BUSINESS_LINE
+              value: toc
+            - name: TENANT_ID
+              value: consumer
+            - name: SERVICE_ROLE
+              value: checkout
+            - name: DEMO_LISTEN_ADDR
+              value: 0.0.0.0:8080
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "5000"
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: trace_based
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: toc-checkout
+  labels:
+    app.kubernetes.io/name: toc-checkout
+spec:
+  selector:
+    app.kubernetes.io/name: toc-checkout
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tob-admin-acme
+  labels:
+    app.kubernetes.io/name: tob-admin
+    observability.platform/business-line: tob
+    observability.platform/tenant: acme
+    observability.platform/org-id: tob-acme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tob-admin-acme
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tob-admin-acme
+        observability.platform/business-line: tob
+        observability.platform/tenant: acme
+        observability.platform/org-id: tob-acme
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: demo-app:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: tob-admin
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: dev
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
+            - name: BUSINESS_LINE
+              value: tob
+            - name: TENANT_ID
+              value: acme
+            - name: SERVICE_ROLE
+              value: admin
+            - name: DEMO_LISTEN_ADDR
+              value: 0.0.0.0:8080
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "5000"
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: trace_based
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tob-admin-acme
+  labels:
+    app.kubernetes.io/name: tob-admin-acme
+spec:
+  selector:
+    app.kubernetes.io/name: tob-admin-acme
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tob-billing-acme
+  labels:
+    app.kubernetes.io/name: tob-billing
+    observability.platform/business-line: tob
+    observability.platform/tenant: acme
+    observability.platform/org-id: tob-acme
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tob-billing-acme
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tob-billing-acme
+        observability.platform/business-line: tob
+        observability.platform/tenant: acme
+        observability.platform/org-id: tob-acme
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: demo-app:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: tob-billing
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: dev
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
+            - name: BUSINESS_LINE
+              value: tob
+            - name: TENANT_ID
+              value: acme
+            - name: SERVICE_ROLE
+              value: billing
+            - name: DEMO_LISTEN_ADDR
+              value: 0.0.0.0:8080
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "5000"
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: trace_based
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tob-billing-acme
+  labels:
+    app.kubernetes.io/name: tob-billing-acme
+spec:
+  selector:
+    app.kubernetes.io/name: tob-billing-acme
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tob-admin-northwind
+  labels:
+    app.kubernetes.io/name: tob-admin
+    observability.platform/business-line: tob
+    observability.platform/tenant: northwind
+    observability.platform/org-id: tob-northwind
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tob-admin-northwind
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tob-admin-northwind
+        observability.platform/business-line: tob
+        observability.platform/tenant: northwind
+        observability.platform/org-id: tob-northwind
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: demo-app:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: tob-admin
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: dev
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
+            - name: BUSINESS_LINE
+              value: tob
+            - name: TENANT_ID
+              value: northwind
+            - name: SERVICE_ROLE
+              value: admin
+            - name: DEMO_LISTEN_ADDR
+              value: 0.0.0.0:8080
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "5000"
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: trace_based
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tob-admin-northwind
+  labels:
+    app.kubernetes.io/name: tob-admin-northwind
+spec:
+  selector:
+    app.kubernetes.io/name: tob-admin-northwind
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tob-billing-northwind
+  labels:
+    app.kubernetes.io/name: tob-billing
+    observability.platform/business-line: tob
+    observability.platform/tenant: northwind
+    observability.platform/org-id: tob-northwind
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: tob-billing-northwind
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: tob-billing-northwind
+        observability.platform/business-line: tob
+        observability.platform/tenant: northwind
+        observability.platform/org-id: tob-northwind
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 65534
+        runAsGroup: 65534
+        fsGroup: 65534
+        seccompProfile:
+          type: RuntimeDefault
+      containers:
+        - name: app
+          image: demo-app:local
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: OTEL_SERVICE_NAME
+              value: tob-billing
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
+              value: http://otel-collector:4317
+            - name: PYROSCOPE_SERVER_ADDRESS
+              value: http://pyroscope:4040
+            - name: DEPLOYMENT_ENVIRONMENT
+              value: dev
+            - name: CLUSTER_NAME
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: CLUSTER_NAME
+            - name: BUSINESS_LINE
+              value: tob
+            - name: TENANT_ID
+              value: northwind
+            - name: SERVICE_ROLE
+              value: billing
+            - name: DEMO_LISTEN_ADDR
+              value: 0.0.0.0:8080
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: "5000"
+            - name: OTEL_METRICS_EXEMPLAR_FILTER
+              value: trace_based
+          ports:
+            - name: http
+              containerPort: 8080
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          resources:
+            requests:
+              cpu: 50m
+              memory: 64Mi
+            limits:
+              memory: 256Mi
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: tmp
+              mountPath: /tmp
+      volumes:
+        - name: tmp
+          emptyDir: {}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tob-billing-northwind
+  labels:
+    app.kubernetes.io/name: tob-billing-northwind
+spec:
+  selector:
+    app.kubernetes.io/name: tob-billing-northwind
+  ports:
+    - name: http
+      port: 8080
+      targetPort: http

@@ -1,7 +1,10 @@
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
-COMPOSE := docker compose -f $(ROOT)/deploy/docker-compose/docker-compose.yml
+COMPOSE := docker compose -f $(ROOT)/deploy/docker-compose/docker-compose.yml -f $(ROOT)/deploy/docker-compose/businesses.yml
 
-.PHONY: up down restart ps logs config-check lint test load kustomize-build terraform-check
+.PHONY: up down restart ps logs config-check lint test load kustomize-build terraform-check render-tenancy
+
+render-tenancy:
+	python3 $(ROOT)/scripts/render_tenancy.py
 
 up:
 	$(COMPOSE) up -d --build

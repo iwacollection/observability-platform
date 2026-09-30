@@ -140,13 +140,51 @@ discovery.relabel "pod_logs" {
 		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
 		target_label  = "app"
 	}
+
+	// Org and tenant come from pod labels written by the tenancy catalog.
+	// Values outside the allow-list are dropped so a user id cannot open a
+	// Loki tenant. Missing labels land in the platform org.
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_org_id"]
+		regex         = "toc|tob-acme|tob-northwind|platform"
+		target_label  = "org_id"
+	}
+
+	rule {
+		source_labels = ["org_id"]
+		regex         = "^$"
+		replacement   = "platform"
+		target_label  = "org_id"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_tenant"]
+		regex         = "consumer|acme|northwind"
+		target_label  = "tenant"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_business_line"]
+		regex         = "toc|tob"
+		target_label  = "business_line"
+	}
+}
+
+loki.process "org" {
+	forward_to = [loki.write.default.receiver]
+
+	stage.tenant {
+		label = "org_id"
+	}
 }
 
 loki.source.kubernetes "pod_logs" {
 	targets    = discovery.relabel.pod_logs.output
-	forward_to = [loki.write.default.receiver]
+	forward_to = [loki.process.org.receiver]
 }
 
+// Do not set endpoint tenant_id here. stage.tenant supplies X-Scope-OrgID
+// per stream. A static tenant_id would override that and mix orgs.
 loki.write "default" {
 	endpoint {
 		url = sys.env("LOKI_PUSH_URL")

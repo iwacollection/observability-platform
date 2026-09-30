@@ -54,7 +54,7 @@ cAdvisor 的例子在 `config/alloy/config.k8s.alloy`。之前 scrape 直接 `fo
 
 ## 日志流不均
 
-表现：`sum by (tenant) (loki_ingester_memory_streams)` 里某一个租户特别高。这套 Loki 是 `auth_enabled: false`，租户实际是 `fake`，倾斜更多体现在标签组合上：某个 `service_name` 配上了高基数标签。`loki_discarded_samples_total` 的 `reason="stream_limit"` 对应 `max_global_streams_per_user: 10000`。`per_stream_rate_limit` 对应单流过快，reason 里会看到 per-stream 限制。
+表现：`sum by (tenant) (loki_ingester_memory_streams)` 里某一个 org 特别高。Loki 已打开 `auth_enabled: true`，这里的 `tenant` 是 `X-Scope-OrgID`（`toc`、`tob-acme`、`tob-northwind`、`platform`、`rejected`），不是终端用户。org 内部的倾斜仍在标签组合上：某个 `service_name` 配上了高基数标签。`loki_discarded_samples_total` 的 `reason="stream_limit"` 对应 `max_global_streams_per_user: 10000`。`per_stream_rate_limit` 对应单流过快。告警按 org 拆开，不会把两个 ToB 租户的丢弃加在一起。
 
 检测：
 
@@ -98,21 +98,25 @@ sum(rate(loki_ingester_streams_created_total[10m]))
 
 ## 租户或服务不均
 
-`cluster` 是低基数身份标签，一个集群一个值。中心栈和 Compose 把它写成 `local`。它不是租户系统，Loki 仍然是 `auth_enabled: false` 的单租户。跨集群的倾斜是某一个 `cluster` 的序列或日志流把中心存储撑满，其它集群的查询还在。看 `count by (cluster) ({__name__=~".+"})` 之前先缩短时间范围。不要把 pod uid 或用户 id 加进 `cluster` 旁边。服务不均看：
+`cluster` 和 `tenant` 都是低基数身份标签。中心栈和 Compose 的 `cluster` 是 `local`。ToC 的 `tenant` 固定 `consumer`，ToB 只有允许表里的 id。跨集群、跨租户的倾斜是某一个格子的序列或日志流把中心存储撑满，其它格子的查询还在。看下面的查询之前先缩短时间范围。不要把 pod uid 或用户 id 加进这两个标签旁边。服务不均看：
 
 ```promql
-topk(5, sum by (service_name) (rate(http_server_request_duration_seconds_count[5m])))
-topk(5, sum by (service_name) (rate(business_payments_total[5m])))
+topk(5, sum by (business_line, tenant, cluster, service_name) (rate(http_server_request_duration_seconds_count[5m])))
+topk(5, sum by (business_line, tenant, cluster, service_name) (rate(business_payments_total{business_line="toc"}[5m])))
+topk(5, sum by (tenant, cluster, service_name) (rate(business_invoices_total{business_line="tob"}[5m])))
 ```
 
 一个 `service_name` 占满 remote write 队列时，`CollectorExporterQueueNearFull` 先响，其他服务的点会跟着延迟。缓解是把那个服务的无用标签删掉（通常就能降一个数量级），而不是先加 Collector 副本。这套拓扑是单副本，加副本不在这份配置的范围内。
 
-Loki 单租户下，`{service_name="某个吵的服务"}` 的行数可以用 Grafana Logs 仪表盘或：
+同一个 Loki org 里，`{service_name="某个吵的服务"}` 的行数可以用对应的 Grafana 数据源，或：
 
 ```bash
-curl -sG 'http://127.0.0.1:3100/loki/api/v1/query' \
-  --data-urlencode 'query=sum by (service_name) (count_over_time({service_name=~".+"}[5m]))'
+curl -sG -H 'X-Scope-OrgID: toc' \
+  'http://127.0.0.1:3100/loki/api/v1/query' \
+  --data-urlencode 'query=sum by (service_name, cluster) (count_over_time({business_line="toc"}[5m]))'
 ```
+
+换 org 时改头，不要改成一个用户 id。细节在 [tenancy.md](tenancy.md)。
 
 ## Prometheus 序列抖动
 

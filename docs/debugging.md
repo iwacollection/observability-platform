@@ -84,7 +84,7 @@ exporter 自身 up、后端 down 时，看的是组件指标而不是 `up`：`re
 
 ## 没有日志
 
-1. demo 同时写 stdout JSON 和 OTLP log。Grafana 的 Logs 仪表盘查 Loki：`{service_name="demo-app"}`。
+1. ToC api 同时写 stdout JSON 和 OTLP log。Grafana 的 Logs 数据源 uid `loki` 只查 org `toc`：`{service_name="toc-api", tenant="consumer"}`。ToB 要换 `loki-tob-acme` 或 `loki-tob-northwind`。某个租户完全没有数时的顺序见 [tenancy.md](tenancy.md)。
 2. Loki 把 OTLP 资源属性里的点换成下划线，所以是 `service_name`，不是 `service.name`。索引标签在 `config/loki/loki.yaml` 的 `otlp_config.resource_attributes`。
 3. Collector 日志管道的 exporter 是 `otlphttp/loki`，地址 `http://loki:3100/otlp`，Collector 会再拼 `/v1/logs`。
 4. 在 Prometheus 看 `sum(rate(loki_distributor_lines_received_total[5m]))`。是 0 说明 Loki 没收到。再看 `sum(rate(otelcol_exporter_send_failed_log_records_total[5m]))`。

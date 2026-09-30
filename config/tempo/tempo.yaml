@@ -4,6 +4,9 @@
 # Distributed Tempo (distributors, ingesters, object storage) belongs on the
 # upstream Tempo Helm chart; do not scale this file past one replica.
 
+# X-Scope-OrgID selects the trace tenant. Org ids match config/tenancy.yaml.
+multitenancy_enabled: true
+
 stream_over_http_enabled: true
 
 server:
@@ -56,9 +59,13 @@ overrides:
           # cardinality: one value per cluster. Do not add http.route here.
           dimensions:
             - cluster
+            - tenant
+            - business_line
         service_graphs:
           dimensions:
             - cluster
+            - tenant
+            - business_line
 
 usage_report:
   reporting_enabled: false

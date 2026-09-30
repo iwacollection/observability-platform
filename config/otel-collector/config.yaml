@@ -92,6 +92,67 @@ processors:
           - set(attributes["result"], "failure") where metric.name == "business.payments" and attributes["result"] != nil and attributes["result"] != "success" and attributes["result"] != "failure"
           - set(attributes["result"], "failure") where metric.name == "business.checkout.duration" and attributes["result"] != nil and attributes["result"] != "success" and attributes["result"] != "failure"
           - set(attributes["segment"], "anonymous") where metric.name == "business.users.active" and attributes["segment"] != nil and attributes["segment"] != "anonymous" and attributes["segment"] != "authenticated"
+          - set(attributes["result"], "failure") where metric.name == "business.invoices" and attributes["result"] != nil and attributes["result"] != "success" and attributes["result"] != "failure"
+          - set(attributes["plan"], "other") where metric.name == "business.seats.active" and attributes["plan"] != nil and attributes["plan"] != "standard" and attributes["plan"] != "enterprise"
+          - set(attributes["plan"], "other") where metric.name == "business.seats.limit" and attributes["plan"] != nil and attributes["plan"] != "standard" and attributes["plan"] != "enterprise"
+          - set(attributes["quota_class"], "other") where metric.name == "business.api.quota.used" and attributes["quota_class"] != nil and attributes["quota_class"] != "standard" and attributes["quota_class"] != "enterprise"
+          - set(attributes["quota_class"], "other") where metric.name == "business.api.quota.limit" and attributes["quota_class"] != nil and attributes["quota_class"] != "standard" and attributes["quota_class"] != "enterprise"
+  # Rewrite business_line, tenant, and org_id onto the resource before export.
+  # ToC is forced to tenant=consumer. ToB values outside the allow-list become
+  # the constant rejected. The statements are generated from config/tenancy.yaml.
+  transform/tenancy:
+    error_mode: ignore
+    metric_statements:
+      - context: resource
+        statements:
+# TENANCY:statements
+          - set(attributes["tenant"], "consumer") where attributes["business_line"] == "toc"
+          - set(attributes["tenant"], "rejected") where attributes["business_line"] == "tob" and attributes["tenant"] != "acme" and attributes["tenant"] != "northwind"
+          - set(attributes["business_line"], "rejected") where attributes["business_line"] != "toc" and attributes["business_line"] != "tob"
+          - set(attributes["tenant"], "rejected") where attributes["business_line"] == "rejected"
+          - set(attributes["org_id"], "toc") where attributes["business_line"] == "toc"
+          - set(attributes["org_id"], "tob-acme") where attributes["business_line"] == "tob" and attributes["tenant"] == "acme"
+          - set(attributes["org_id"], "tob-northwind") where attributes["business_line"] == "tob" and attributes["tenant"] == "northwind"
+          - set(attributes["org_id"], "rejected") where attributes["org_id"] == nil
+          - delete_key(attributes, "user.id")
+          - delete_key(attributes, "order.id")
+          - delete_key(attributes, "customer.id")
+          - delete_key(attributes, "enduser.id")
+# TENANCY:statements:end
+    trace_statements:
+      - context: resource
+        statements:
+# TENANCY:statements
+          - set(attributes["tenant"], "consumer") where attributes["business_line"] == "toc"
+          - set(attributes["tenant"], "rejected") where attributes["business_line"] == "tob" and attributes["tenant"] != "acme" and attributes["tenant"] != "northwind"
+          - set(attributes["business_line"], "rejected") where attributes["business_line"] != "toc" and attributes["business_line"] != "tob"
+          - set(attributes["tenant"], "rejected") where attributes["business_line"] == "rejected"
+          - set(attributes["org_id"], "toc") where attributes["business_line"] == "toc"
+          - set(attributes["org_id"], "tob-acme") where attributes["business_line"] == "tob" and attributes["tenant"] == "acme"
+          - set(attributes["org_id"], "tob-northwind") where attributes["business_line"] == "tob" and attributes["tenant"] == "northwind"
+          - set(attributes["org_id"], "rejected") where attributes["org_id"] == nil
+          - delete_key(attributes, "user.id")
+          - delete_key(attributes, "order.id")
+          - delete_key(attributes, "customer.id")
+          - delete_key(attributes, "enduser.id")
+# TENANCY:statements:end
+    log_statements:
+      - context: resource
+        statements:
+# TENANCY:statements
+          - set(attributes["tenant"], "consumer") where attributes["business_line"] == "toc"
+          - set(attributes["tenant"], "rejected") where attributes["business_line"] == "tob" and attributes["tenant"] != "acme" and attributes["tenant"] != "northwind"
+          - set(attributes["business_line"], "rejected") where attributes["business_line"] != "toc" and attributes["business_line"] != "tob"
+          - set(attributes["tenant"], "rejected") where attributes["business_line"] == "rejected"
+          - set(attributes["org_id"], "toc") where attributes["business_line"] == "toc"
+          - set(attributes["org_id"], "tob-acme") where attributes["business_line"] == "tob" and attributes["tenant"] == "acme"
+          - set(attributes["org_id"], "tob-northwind") where attributes["business_line"] == "tob" and attributes["tenant"] == "northwind"
+          - set(attributes["org_id"], "rejected") where attributes["org_id"] == nil
+          - delete_key(attributes, "user.id")
+          - delete_key(attributes, "order.id")
+          - delete_key(attributes, "customer.id")
+          - delete_key(attributes, "enduser.id")
+# TENANCY:statements:end
   # Tail sampling delays export by decision_wait. Policies are OR'd:
   # errors and slow traces are always kept. baseline is 100 so this
   # single-node stack still shows every demo trace. Lower
@@ -121,6 +182,42 @@ processors:
     send_batch_size: 1024
     send_batch_max_size: 2048
 
+connectors:
+# TENANCY:connectors
+  routing/logs:
+    default_pipelines: [logs/rejected]
+    error_mode: ignore
+    table:
+      - context: resource
+        statement: route() where attributes["org_id"] == "toc"
+        pipelines: [logs/toc]
+      - context: resource
+        statement: route() where attributes["org_id"] == "tob-acme"
+        pipelines: [logs/acme]
+      - context: resource
+        statement: route() where attributes["org_id"] == "tob-northwind"
+        pipelines: [logs/northwind]
+      - context: resource
+        statement: route() where attributes["org_id"] == "rejected"
+        pipelines: [logs/rejected]
+  routing/traces:
+    default_pipelines: [traces/rejected]
+    error_mode: ignore
+    table:
+      - context: resource
+        statement: route() where attributes["org_id"] == "toc"
+        pipelines: [traces/toc]
+      - context: resource
+        statement: route() where attributes["org_id"] == "tob-acme"
+        pipelines: [traces/acme]
+      - context: resource
+        statement: route() where attributes["org_id"] == "tob-northwind"
+        pipelines: [traces/northwind]
+      - context: resource
+        statement: route() where attributes["org_id"] == "rejected"
+        pipelines: [traces/rejected]
+# TENANCY:connectors:end
+
 exporters:
   prometheusremotewrite:
     endpoint: ${env:PROMETHEUS_REMOTE_WRITE_URL:-http://prometheus:9090/api/v1/write}
@@ -132,14 +229,56 @@ exporters:
       enabled: true
       num_consumers: 4
       queue_size: 2000
-  otlphttp/loki:
+# TENANCY:exporters
+  otlphttp/loki_toc:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    headers:
+      X-Scope-OrgID: toc
     tls:
       insecure: true
-  otlp/tempo:
+  otlp/tempo_toc:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    headers:
+      X-Scope-OrgID: toc
     tls:
       insecure: true
+  otlphttp/loki_acme:
+    endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    headers:
+      X-Scope-OrgID: tob-acme
+    tls:
+      insecure: true
+  otlp/tempo_acme:
+    endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    headers:
+      X-Scope-OrgID: tob-acme
+    tls:
+      insecure: true
+  otlphttp/loki_northwind:
+    endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    headers:
+      X-Scope-OrgID: tob-northwind
+    tls:
+      insecure: true
+  otlp/tempo_northwind:
+    endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    headers:
+      X-Scope-OrgID: tob-northwind
+    tls:
+      insecure: true
+  otlphttp/loki_rejected:
+    endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    headers:
+      X-Scope-OrgID: rejected
+    tls:
+      insecure: true
+  otlp/tempo_rejected:
+    endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    headers:
+      X-Scope-OrgID: rejected
+    tls:
+      insecure: true
+# TENANCY:exporters:end
   otlp/pyroscope:
     endpoint: ${env:PYROSCOPE_OTLP_ENDPOINT:-pyroscope:4040}
     tls:
@@ -161,19 +300,45 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/business_labels, batch]
+      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/business_labels, transform/tenancy, batch]
       exporters: [prometheusremotewrite]
     logs:
       receivers: [otlp]
-      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, batch]
-      exporters: [otlphttp/loki]
+      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/tenancy, batch]
+      exporters: [routing/logs]
     traces:
       receivers: [otlp]
-      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, tail_sampling, batch]
-      exporters: [otlp/tempo]
+      processors: [memory_limiter, resource/cluster, attributes/sanitize, filter/query_in_route, transform/tenancy, tail_sampling, batch]
+      exporters: [routing/traces]
     # batch, attributes, filter, and tail_sampling do not implement profiles
     # in collector 0.161. Keep this pipeline on memory_limiter only.
     profiles:
       receivers: [otlp]
       processors: [memory_limiter]
       exporters: [otlp/pyroscope]
+# TENANCY:pipelines
+    logs/toc:
+      receivers: [routing/logs]
+      exporters: [otlphttp/loki_toc]
+    traces/toc:
+      receivers: [routing/traces]
+      exporters: [otlp/tempo_toc]
+    logs/acme:
+      receivers: [routing/logs]
+      exporters: [otlphttp/loki_acme]
+    traces/acme:
+      receivers: [routing/traces]
+      exporters: [otlp/tempo_acme]
+    logs/northwind:
+      receivers: [routing/logs]
+      exporters: [otlphttp/loki_northwind]
+    traces/northwind:
+      receivers: [routing/traces]
+      exporters: [otlp/tempo_northwind]
+    logs/rejected:
+      receivers: [routing/logs]
+      exporters: [otlphttp/loki_rejected]
+    traces/rejected:
+      receivers: [routing/traces]
+      exporters: [otlp/tempo_rejected]
+# TENANCY:pipelines:end

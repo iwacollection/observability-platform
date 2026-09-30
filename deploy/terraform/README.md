@@ -16,6 +16,19 @@ Kubernetes provider 钉在 `hashicorp/kubernetes` `2.38.0`。Terraform CLI 需�
 | `stacks/platform/backend.tf.example` | 远端状态样例，Terraform 不会加载它 |
 | `scripts/kubectl-apply.sh` | `apply` 或 `delete`。需要本机有 `kubectl` 和 `kustomize` |
 
+## 租户目录
+
+业务线和租户不在 tfvars 里再抄一份。`stacks/platform/tenancy.tf` 读取仓库根的 `config/tenancy.yaml`。增加一个 ToB 租户：
+
+1. 改 yaml 里的 `business_lines.tob.tenants`，`org_id` 写成 `tob-<id>`。
+2. 把同一个 id 写进 `examples/demo-app/src/demo_app/identity.py` 的 `TOB_TENANTS`。
+3. `make render-tenancy`，然后 `make config-check`。
+4. `terraform apply`。生成的 Collector、数据源、规则和工作负载会随中心栈的 Kustomize 一起应用。
+
+`terraform plan` 会检查租户 id 是 DNS 标签，并且 org id 等于 `tob-<id>`。输出 `tob_tenant_ids` 和 `tenancy_org_ids`。
+
+这仍然不是「一个租户一个 Kubernetes provider」。租户是中心栈里的数据。`for_each` 不能给每个实例换 provider alias，所以工作负载集群的 agent 继续用各自的 kubeconfig 调 `kubectl`。增加集群和增加租户是两件不同的事。
+
 ## 为什么 YAML 还在
 
 Compose 用 bind mount 读取 `config/`。Kustomize 的 `configMapGenerator` 也指向这些文件。如果 Terraform 再用 template 生成第二份 Prometheus 配置，两边会分叉。所以 Terraform 不渲染业务配置，只决定哪个 kubeconfig、哪个集群名、哪组中心 URL。

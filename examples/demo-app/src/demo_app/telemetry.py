@@ -15,6 +15,7 @@ from opentelemetry import metrics, trace
 from opentelemetry.trace import SpanContext
 
 from demo_app.business import BusinessRecorder
+from demo_app.identity import resolve_from_env
 
 SERVICE_NAMESPACE = "observability"
 
@@ -119,8 +120,9 @@ def setup_logging() -> logging.Logger:
     return logger
 
 
-def setup_telemetry(logger: logging.Logger) -> Telemetry:
+def setup_telemetry(logger: logging.Logger, identity: dict[str, str] | None = None) -> Telemetry:
     """Return tracers and instruments. No-ops when telemetry is off."""
+    identity = identity or resolve_from_env()
     if not telemetry_enabled():
         return Telemetry(
             trace.get_tracer("demo-app"),
@@ -145,6 +147,8 @@ def setup_telemetry(logger: logging.Logger) -> Telemetry:
     service_name = os.environ.get("OTEL_SERVICE_NAME", "demo-app")
     environment = os.environ.get("DEPLOYMENT_ENVIRONMENT", "local")
     cluster = os.environ.get("CLUSTER_NAME", "local")
+    business_line = identity["business_line"]
+    tenant = identity["tenant"]
     endpoint, insecure = grpc_target(
         os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
     )
@@ -161,6 +165,8 @@ def setup_telemetry(logger: logging.Logger) -> Telemetry:
             "service.instance.id": socket.gethostname(),
             "deployment.environment": environment,
             "cluster": cluster,
+            "business_line": business_line,
+            "tenant": tenant,
         }
     )
 
@@ -227,6 +233,31 @@ def setup_telemetry(logger: logging.Logger) -> Telemetry:
             unit="{user}",
             description="Active users observed by segment",
         ),
+        invoices=meter.create_counter(
+            name="business.invoices",
+            unit="{invoice}",
+            description="ToB invoices by result",
+        ),
+        seats=meter.create_gauge(
+            name="business.seats.active",
+            unit="{seat}",
+            description="ToB seats in use by plan",
+        ),
+        seat_limit=meter.create_gauge(
+            name="business.seats.limit",
+            unit="{seat}",
+            description="ToB seat limit by plan",
+        ),
+        quota_used=meter.create_gauge(
+            name="business.api.quota.used",
+            unit="{request}",
+            description="ToB API quota consumed",
+        ),
+        quota_limit=meter.create_gauge(
+            name="business.api.quota.limit",
+            unit="{request}",
+            description="ToB API quota limit",
+        ),
     )
     _configure_process_metrics(logger)
 
@@ -239,7 +270,7 @@ def setup_telemetry(logger: logging.Logger) -> Telemetry:
     otel_handler.setFormatter(JsonFormatter())
     logger.addHandler(otel_handler)
 
-    _configure_pyroscope(logger, service_name, environment, cluster)
+    _configure_pyroscope(logger, service_name, environment, cluster, business_line, tenant)
     return Telemetry(trace.get_tracer("demo-app"), histogram, active, business)
 
 
@@ -252,7 +283,14 @@ def _configure_process_metrics(logger: logging.Logger) -> None:
         logger.warning("process runtime metrics disabled: %s", exc)
 
 
-def _configure_pyroscope(logger: logging.Logger, service_name: str, environment: str, cluster: str) -> None:
+def _configure_pyroscope(
+    logger: logging.Logger,
+    service_name: str,
+    environment: str,
+    cluster: str,
+    business_line: str,
+    tenant: str,
+) -> None:
     address = os.environ.get("PYROSCOPE_SERVER_ADDRESS", "").strip()
     if not address:
         return
@@ -266,6 +304,8 @@ def _configure_pyroscope(logger: logging.Logger, service_name: str, environment:
                 "service_name": service_name,
                 "deployment_environment": environment,
                 "cluster": cluster,
+                "business_line": business_line,
+                "tenant": tenant,
             },
             enable_logging=False,
         )

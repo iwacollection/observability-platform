@@ -13,6 +13,9 @@ spec:
     metadata:
       labels:
         app.kubernetes.io/name: demo-app
+        observability.platform/business-line: toc
+        observability.platform/tenant: consumer
+        observability.platform/org-id: toc
     spec:
       automountServiceAccountToken: false
       securityContext:
@@ -28,7 +31,13 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: OTEL_SERVICE_NAME
-              value: demo-app
+              value: toc-api
+            - name: BUSINESS_LINE
+              value: toc
+            - name: TENANT_ID
+              value: consumer
+            - name: SERVICE_ROLE
+              value: api
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
             - name: PYROSCOPE_SERVER_ADDRESS

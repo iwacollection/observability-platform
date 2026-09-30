@@ -11,10 +11,12 @@ from urllib.parse import parse_qs, urlparse
 
 from opentelemetry.trace import Status, StatusCode
 
+from demo_app.identity import resolve_from_env
 from demo_app.telemetry import setup_logging, setup_telemetry
 
 LOGGER = setup_logging()
-TELEMETRY = setup_telemetry(LOGGER)
+APP_IDENTITY = resolve_from_env()
+TELEMETRY = setup_telemetry(LOGGER, APP_IDENTITY)
 
 # Paths that may appear as the http.route label. Anything else is "other"
 # so a scan of random URLs cannot create a series per path.
@@ -26,6 +28,16 @@ KNOWN_ROUTES = {
     "/api/error",
     "/api/orders",
     "/api/checkout",
+    "/api/invoices",
+    "/api/seats",
+    "/api/quota",
+}
+
+_ROLE_PATHS = {
+    "api": {"/", "/healthz", "/api/work", "/api/slow", "/api/error", "/api/orders", "/api/checkout"},
+    "checkout": {"/", "/healthz", "/api/orders", "/api/checkout"},
+    "admin": {"/", "/healthz", "/api/seats", "/api/quota"},
+    "billing": {"/", "/healthz", "/api/invoices"},
 }
 
 
@@ -49,12 +61,26 @@ def _first(query: dict[str, list[str]], key: str, default: str = "") -> str:
     return values[0]
 
 
+def service_name() -> str:
+    return os.environ.get("OTEL_SERVICE_NAME", "demo-app")
+
+
 def handle_request(method: str, path: str, query: dict[str, list[str]]) -> tuple[int, dict]:
     if method != "GET":
         return 405, {"error": "method not allowed", "method": method}
 
+    identity = APP_IDENTITY
+    allowed = _ROLE_PATHS.get(identity["role"], _ROLE_PATHS["api"])
+    if path not in allowed and path not in {"/", "/healthz"}:
+        return 404, {"error": "not found", "route": path}
+
     if path in {"/", "/healthz"}:
-        return 200, {"status": "ok", "service": "demo-app"}
+        return 200, {
+            "status": "ok",
+            "service": service_name(),
+            "business_line": identity["business_line"],
+            "tenant": identity["tenant"],
+        }
 
     if path == "/api/work":
         burned = burn_cpu(_bounded_int(query, "burn_ms", default=40, upper=2000))
@@ -91,6 +117,35 @@ def handle_request(method: str, path: str, query: dict[str, list[str]]) -> tuple
             "method": attributes["method"],
             "segment": segment["segment"],
             "slept": delay,
+        }
+
+    if path == "/api/invoices":
+        failed = _first(query, "fail", "0") in {"1", "true", "yes"}
+        attributes = TELEMETRY.business.invoice(failed)
+        return 200, {"status": "ok" if not failed else "error", "route": path, "result": attributes["result"]}
+
+    if path == "/api/seats":
+        count = _bounded_float(query, "count", default=1, upper=100000)
+        limit = _bounded_float(query, "limit", default=100, upper=1000000)
+        attributes = TELEMETRY.business.note_seats(_first(query, "plan", "standard"), count, limit)
+        return 200, {
+            "status": "ok",
+            "route": path,
+            "plan": attributes["plan"],
+            "count": count,
+            "limit": limit,
+        }
+
+    if path == "/api/quota":
+        used = _bounded_float(query, "used", default=0, upper=1000000)
+        limit = _bounded_float(query, "limit", default=1000, upper=1000000)
+        attributes = TELEMETRY.business.note_quota(_first(query, "class", "standard"), used, limit)
+        return 200, {
+            "status": "ok",
+            "route": path,
+            "quota_class": attributes["quota_class"],
+            "used": used,
+            "limit": limit,
         }
 
     return 404, {"error": "not found", "route": path}

@@ -47,7 +47,7 @@
             "uid": "tempo"
           },
           "queryType": "traceql",
-          "query": "{ resource.service.name =~ \"$service_name\" }",
+          "query": "{ resource.service.name =~ \"$service_name\" && resource.business_line = \"toc\" && resource.tenant = \"consumer\" }",
           "limit": 20,
           "tableType": "traces"
         }
@@ -90,7 +90,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (service, span_name) (rate(traces_spanmetrics_calls_total[5m]))",
+          "expr": "sum by (service, span_name) (rate(traces_spanmetrics_calls_total{business_line=\"toc\",tenant=\"consumer\"}[5m]))",
           "legendFormat": "{{service}} {{span_name}}"
         }
       ]
@@ -132,7 +132,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "histogram_quantile(0.95, sum by (service, span_name, le) (rate(traces_spanmetrics_latency_bucket[5m])))",
+          "expr": "histogram_quantile(0.95, sum by (service, span_name, le) (rate(traces_spanmetrics_latency_bucket{business_line=\"toc\",tenant=\"consumer\"}[5m])))",
           "legendFormat": "{{service}} {{span_name}}"
         }
       ]
@@ -174,7 +174,7 @@
             "type": "prometheus",
             "uid": "prometheus"
           },
-          "expr": "sum by (client, server) (rate(traces_service_graph_request_total[5m]))",
+          "expr": "sum by (client, server) (rate(traces_service_graph_request_total{business_line=\"toc\",tenant=\"consumer\"}[5m]))",
           "legendFormat": "{{client}} -> {{server}}"
         }
       ]

@@ -185,11 +185,46 @@ discovery.relabel "pod_logs" {
 		source_labels = ["__meta_kubernetes_pod_label_app_kubernetes_io_name"]
 		target_label  = "app"
 	}
+
+	// Same allow-list as config.k8s.alloy. Keep the regex aligned with
+	// config/tenancy.yaml; render-tenancy --check compares them.
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_org_id"]
+		regex         = "toc|tob-acme|tob-northwind|platform"
+		target_label  = "org_id"
+	}
+
+	rule {
+		source_labels = ["org_id"]
+		regex         = "^$"
+		replacement   = "platform"
+		target_label  = "org_id"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_tenant"]
+		regex         = "consumer|acme|northwind"
+		target_label  = "tenant"
+	}
+
+	rule {
+		source_labels = ["__meta_kubernetes_pod_label_observability_platform_business_line"]
+		regex         = "toc|tob"
+		target_label  = "business_line"
+	}
+}
+
+loki.process "org" {
+	forward_to = [loki.write.default.receiver]
+
+	stage.tenant {
+		label = "org_id"
+	}
 }
 
 loki.source.kubernetes "pod_logs" {
 	targets    = discovery.relabel.pod_logs.output
-	forward_to = [loki.write.default.receiver]
+	forward_to = [loki.process.org.receiver]
 }
 
 loki.write "default" {

@@ -1,0 +1,68 @@
+# Catalog of business lines, tenants, and the clusters they run on.
+# Compose, the collector, Grafana, Prometheus rules, and Terraform all derive
+# from this file. Add a business line or a ToB tenant here, then run
+# `make render-tenancy`. Do not copy a Deployment or a datasource by hand.
+#
+# Tenant ids are a bounded allow-list. They are not customer user ids,
+# order ids, or free-form strings. Unknown values are rewritten to the
+# constant "rejected" before they can become a metric label or a Loki/Tempo
+# org id.
+
+version: 1
+platform_org_id: platform
+rejected_org_id: rejected
+
+business_lines:
+  toc:
+    kind: toc
+    # One synthetic tenant for the whole consumer line. End-user ids stay off labels.
+    tenant: consumer
+    org_id: toc
+    clusters:
+      - local
+      - prod-a
+      - prod-b
+    services:
+      - name: toc-api
+        role: api
+        # Historical demo process. Same routes, now the ToC api on :8080.
+        compose_service: demo-app
+        host_port: 8080
+        container_port: 8080
+      - name: toc-checkout
+        role: checkout
+        compose_service: toc-checkout
+        host_port: 8081
+        container_port: 8080
+
+  tob:
+    kind: tob
+    clusters:
+      - local
+      - prod-a
+      - prod-b
+    services:
+      - name: tob-admin
+        role: admin
+        container_port: 8080
+      - name: tob-billing
+        role: billing
+        container_port: 8080
+    tenants:
+      - id: acme
+        org_id: tob-acme
+        # Local Compose runs this tenant. Northwind stays in the allow-list
+        # and in the rendered collector/datasources; set compose and replicas
+        # to turn the process on.
+        compose: true
+        replicas: 1
+        host_ports:
+          tob-admin: 8082
+          tob-billing: 8083
+      - id: northwind
+        org_id: tob-northwind
+        compose: false
+        replicas: 0
+        host_ports:
+          tob-admin: 8084
+          tob-billing: 8085

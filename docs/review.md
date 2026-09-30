@@ -106,3 +106,19 @@ Remote write、Loki、Tempo、Pyroscope 都没有认证。Postgres 是 `trust`�
 - 本文记录问题和对应改动。
 - 新增 `docs/multi-cluster.md` 和 `deploy/terraform/README.md`。
 - README、`docs/architecture.md`、`docs/onboarding.md`、`docs/data-skew.md`、`docs/metrics-catalog.md` 改成和当前文件一致的端口、变量名和路径。
+
+## 8. 还不是多业务平台
+
+上一轮做完之后，仓库能把多个集群的采集送到一套中心栈，但被观察的仍然是一个 demo 服务。`examples/demo-app` 的路由和 `business_payments_total` 是唯一的业务。记录规则 `sum by (cluster, service_name)` 一旦出现第二个业务线或第二个企业客户，就会把它们加在一起。Loki `auth_enabled: false`，Tempo 没有 `multitenancy_enabled`，日志和链路只靠标签混在一个 org 里。Grafana 只有一套 `loki` / `tempo` 数据源。没有租户允许表，也没有「加一个企业客户是改地图再 apply」的路径。这还不叫同时覆盖 ToB 和 ToC、跨多个集群的企业级可观测性。
+
+这次改了什么：
+
+- `config/tenancy.yaml` 是业务线、租户、服务和集群落点的唯一目录。ToC 有 `toc-api` 与 `toc-checkout`，合成租户 `consumer`。ToB 有 `tob-admin` 与 `tob-billing`，允许表是 `acme` 和 `northwind`。
+- `scripts/render_tenancy.py` 从这份地图生成 Collector 的 `X-Scope-OrgID` 路由、Grafana 按 org 的数据源、`tenancy.yml` 规则、Compose 业务进程、Kubernetes 工作负载和 ToB 仪表盘。`make config-check` 会比对，防止手改生成物。
+- Loki `auth_enabled: true`，Tempo `multitenancy_enabled: true`。org 是 `toc`、`tob-acme`、`tob-northwind`、`platform`、`rejected`。不在允许表里的租户字符串变成常量 `rejected`，不会变成新的 org 或新的指标标签。
+- Prometheus 仍是标签隔离，没有假装接了 Mimir。记录规则和告警保留 `cluster`、`tenant`、`business_line`。`toc:http_requests:rate5m` 不会计入 ToB 序列。`promtool test rules` 覆盖了这一点，也覆盖了 `acme` 与 `northwind` 不会加成一条线。
+- Compose 在 `local` 上跑 ToC 两个服务和 ToB 租户 `acme`。`northwind` 在目录和清单里，副本数为 0。
+- Terraform 读同一份 yaml，plan 时校验 org id。增加租户不是复制 Deployment。provider alias 仍然不能放进 `for_each`，文档继续这么写。
+- 说明在 `docs/tenancy.md`。
+
+还没有做的：中心进程仍是单副本本地盘；remote write、Loki、Tempo 前面没有鉴权网关；Pyroscope 只靠标签，不靠 org 头；Prometheus 没有换成 Mimir。这些都不要在 README 里写成已经完成。

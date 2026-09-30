@@ -13,6 +13,9 @@ die() { printf 'FAIL %s\n' "$*" >&2; fail=1; }
 
 export PATH="/tmp/obs-tools/bin:${PATH}"
 
+note "tenancy render"
+python3 "$root/scripts/render_tenancy.py" --check || die "tenancy render drift"
+
 note "image pins"
 python3 - <<'PY'
 import pathlib, sys
@@ -84,10 +87,25 @@ for path in root.rglob("*.json"):
                 errors.append(f"{path}: queries do not filter cluster")
         for panel in data.get("panels", []):
             ds = panel.get("datasource") or {}
-            if isinstance(ds, dict) and ds.get("uid") not in {
+            uid = ds.get("uid") if isinstance(ds, dict) else None
+            allowed = {
                 "prometheus", "loki", "tempo", "pyroscope", "alertmanager", None, "-- Grafana --"
-            }:
-                errors.append(f"{path}: panel {panel.get('id')} datasource uid {ds.get('uid')}")
+            }
+            if isinstance(ds, dict) and uid not in allowed and not (
+                isinstance(uid, str) and (uid.startswith("loki-") or uid.startswith("tempo-"))
+            ):
+                errors.append(f"{path}: panel {panel.get('id')} datasource uid {uid}")
+        if path.name in {"toc-line.json", "tob-line.json", "application.json", "business.json"}:
+            names = [item.get("name") for item in data.get("templating", {}).get("list", [])]
+            blob = json.dumps(data)
+            if "tenant" not in names and "tenant" not in blob:
+                errors.append(f"{path}: missing tenant")
+            if path.name == "toc-line.json" and 'business_line=\\"toc\\"' not in blob and 'business_line="toc"' not in blob:
+                errors.append(f"{path}: ToC dashboard does not pin business_line")
+            if path.name == "tob-line.json":
+                tenant_var = next((item for item in data.get("templating", {}).get("list", []) if item.get("name") == "tenant"), {})
+                if tenant_var.get("includeAll") or tenant_var.get("multi"):
+                    errors.append(f"{path}: tenant variable must be single-select")
 if errors:
     print("\n".join(errors))
     sys.exit(1)
@@ -224,9 +242,9 @@ fi
 
 note "compose config"
 if command -v docker >/dev/null 2>&1 && docker compose version >/dev/null 2>&1; then
-  docker compose -f "$root/deploy/docker-compose/docker-compose.yml" config >/tmp/observability-compose.yml || die "docker compose config"
+  docker compose -f "$root/deploy/docker-compose/docker-compose.yml" -f "$root/deploy/docker-compose/businesses.yml" config >/tmp/observability-compose.yml || die "docker compose config"
 elif command -v docker-compose >/dev/null 2>&1; then
-  docker-compose -f "$root/deploy/docker-compose/docker-compose.yml" config >/tmp/observability-compose.yml || die "docker-compose config"
+  docker-compose -f "$root/deploy/docker-compose/docker-compose.yml" -f "$root/deploy/docker-compose/businesses.yml" config >/tmp/observability-compose.yml || die "docker-compose config"
 else
   warn "docker compose CLI not found; skipped compose config"
 fi

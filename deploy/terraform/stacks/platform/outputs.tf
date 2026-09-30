@@ -18,6 +18,16 @@ output "workload_clusters" {
   description = "Workload clusters whose agents Terraform will apply."
 }
 
+output "tenancy_org_ids" {
+  value       = local.tenancy_org_ids
+  description = "Loki and Tempo X-Scope-OrgID values from config/tenancy.yaml."
+}
+
+output "tob_tenant_ids" {
+  value       = local.tob_tenant_ids
+  description = "Bounded ToB tenant allow-list. Not customer user ids."
+}
+
 output "workload_remote_write_urls" {
   value = {
     for name, agent in module.workload : name => agent.prometheus_remote_write_url

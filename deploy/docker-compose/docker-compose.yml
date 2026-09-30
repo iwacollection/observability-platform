@@ -162,11 +162,14 @@ services:
       context: ../../examples/demo-app
     image: demo-app:local
     environment:
-      OTEL_SERVICE_NAME: demo-app
+      OTEL_SERVICE_NAME: toc-api
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
+      BUSINESS_LINE: toc
+      TENANT_ID: consumer
+      SERVICE_ROLE: api
       DEMO_LISTEN_ADDR: 0.0.0.0:8080
       OTEL_METRIC_EXPORT_INTERVAL: "5000"
       OTEL_METRICS_EXEMPLAR_FILTER: trace_based

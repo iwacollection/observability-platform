@@ -6,10 +6,12 @@
 
 | 属性 | Prometheus / Loki 标签 | 本仓库的值 |
 | --- | --- | --- |
-| `service.name` | `service_name` | demo 是 `demo-app` |
+| `service.name` | `service_name` | ToC api 是 `toc-api`，结账是 `toc-checkout`；ToB 是 `tob-admin`、`tob-billing` |
 | `service.namespace` | `service_namespace` | 固定 `observability` |
 | `deployment.environment` | `deployment_environment` | Compose `local`，Kustomize dev/prod 分别是 `dev` / `prod` |
 | `cluster` | `cluster` | Compose 和中心栈是 `local`。工作负载集群是 Terraform map 的键，例如 `prod-a`。一个集群一个值 |
+| `business_line` | `business_line` | `toc` 或 `tob` |
+| `tenant` | `tenant` | ToC 固定 `consumer`。ToB 只允许 `config/tenancy.yaml` 里的 id，例如 `acme`、`northwind` |
 
 不要把用户 id、订单 id、完整 URL、查询字符串放进资源属性或数据点属性。Collector 会删掉一批键，但删之前它们已经进过内存。
 
@@ -21,7 +23,11 @@ Compose 环境变量（`deploy/docker-compose/docker-compose.yml` 的 `demo-app`
 
 ```yaml
 environment:
-  OTEL_SERVICE_NAME: demo-app
+  OTEL_SERVICE_NAME: toc-api
+  BUSINESS_LINE: toc
+  TENANT_ID: consumer
+  SERVICE_ROLE: api
+  CLUSTER_NAME: local
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   OTEL_METRIC_EXPORT_INTERVAL: "5000"
   OTEL_METRICS_EXEMPLAR_FILTER: trace_based
@@ -125,15 +131,15 @@ loki.write "default" {
 
 发现规则只保留 `NODE_NAME` 上的 Pod，标签是 `namespace`、`pod`、`container`、`app`。不要把 `pod_uid` 或完整日志行推进标签。
 
-直接推一条测试日志（单租户，`auth_enabled: false`）：
+Loki 已打开多租户。推一条测试日志时要带 org，ToC 用 `toc`，ToB 用 `tob-acme` 或 `tob-northwind`。不要用用户 id 当 org：
 
 ```bash
-curl -sS -H 'Content-Type: application/json' \
-  -d '{"streams":[{"stream":{"service_name":"manual","deployment_environment":"local"},"values":[["'$(date +%s%N)'","{\"msg\":\"hello\"}"]]}]}' \
+curl -sS -H 'Content-Type: application/json' -H 'X-Scope-OrgID: toc' \
+  -d '{"streams":[{"stream":{"service_name":"toc-api","tenant":"consumer","business_line":"toc","cluster":"local"},"values":[["'$(date +%s%N)'","{\"msg\":\"hello\"}"]]}]}' \
   http://127.0.0.1:3100/loki/api/v1/push
 ```
 
-`service_name` 这样的低基数标签可以。不要把用户 id 放进 `stream`。
+应用日志平时不走这条 curl，而走 Collector。Collector 按 `config/tenancy.yaml` 的允许表选择 org。`service_name`、`tenant`、`business_line`、`cluster` 可以当标签。不要把用户 id 放进 `stream`。接入步骤在 [tenancy.md](tenancy.md)。
 
 ## 中间件 exporter
 
