@@ -41,12 +41,17 @@ variable "grafana_admin_password" {
   type        = string
   default     = null
   sensitive   = true
-  description = "When set, Terraform creates the grafana-admin Secret. Leave null to create that Secret outside Terraform. Never commit the value."
+  description = "When set, Terraform creates the grafana-admin Secret. Leave null and the Grafana pod waits until you set TF_VAR_grafana_admin_password and apply again. Never commit the value."
 }
 
 variable "ingest_token" {
   type        = string
   default     = null
   sensitive   = true
-  description = "When set, Terraform writes Secret ingest-auth after the overlay apply. Leave null on the dev overlay, which already contains the local placeholder. Never commit the value."
+  description = "Bearer token for Secret ingest-auth. Required when overlay is prod: the Kubernetes provider creates the Secret. On dev, a non-empty value overrides the overlay placeholder. Never commit the value."
+}
+
+variable "generated_workload_names" {
+  type        = list(string)
+  description = "Deployment and Service names rendered from config/tenancy.yaml, excluding demo-app. Passed by stacks/platform."
 }

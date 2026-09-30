@@ -85,7 +85,7 @@ flowchart LR
 
 Compose 仍然是一台机器上的中心栈，`cluster` 固定为 `local`。Agent 配置里的环境变量和 Kubernetes 工作负载集群是同一条管道，只是 URL 指向 Docker 网络里的服务名。
 
-清单仍然是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 负责把同一批文件渲染成 ConfigMap。Terraform 是下发入口：`deploy/terraform/stacks/platform` 用 `for_each` 调用 `modules/cluster_agent`，用 provider alias 绑定每个集群的 kubeconfig。增加第三个集群改的是变量和一行 alias，不是再复制一份 Deployment。步骤在 [deploy/terraform/README.md](deploy/terraform/README.md)。
+清单仍然是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 负责把同一批文件渲染成 ConfigMap。Terraform 是下发入口：`deploy/terraform/stacks/platform` 用 `for_each` 调用 `modules/cluster_agent`，用 provider alias 绑定每个集群的 kubeconfig。增加第三个集群改的是变量和一行 alias，不是再复制一份 Deployment。Kustomize 渲染出的 kind/name 必须写在模块的 `managed_resources.yaml` 里，否则 `make config-check` 失败。步骤在 [deploy/terraform/README.md](deploy/terraform/README.md)。
 
 五层监控和运维说明：
 
@@ -383,31 +383,33 @@ Demo 对照（`examples/demo-app`）：
 
 ## 8. Kubernetes 部署
 
+集群里的组件由 Terraform 安装。人不要再单独 `kubectl apply` 这套可观测栈。本机 Docker Compose 仍然是笔记本路径，Terraform 不驱动 Compose。
+
 清单在 `deploy/kubernetes`。`base` 引用 `config/` 生成 ConfigMap。`overlays/dev` 把几块盘降到 2Gi，环境标成 `dev`，并把 `northwind` 的两个 Deployment 设为 1。`overlays/prod` 加大请求/限制和磁盘，并把 demo 的环境标成 `prod`；`northwind` 在 prod 仍是 0。中心存储保持单副本。工作负载集群用 `deploy/kubernetes/agent`，包含 Alloy（DaemonSet）、两个副本的 Collector、node-exporter、kube-state-metrics 和 NetworkPolicy。
 
-多集群的管理入口是 Terraform，不是把下面的 `kubectl apply` 复制到每台机器上。`kubectl` 仍然是 Terraform 内部用来应用 Kustomize 输出的工具。只想在一个集群上看 YAML 时，可以继续用本节的命令。
+配置在仓库的 `config/`，不在 `deploy/kubernetes/` 里面。Kustomize 默认禁止引用根目录之外的文件，所以 Terraform 内部的构建带 `--load-restrictor LoadRestrictionsNone`。`kubectl apply -k` 没有这个开关，不要拿它当安装入口。
+
+在 `deploy/terraform/stacks/platform`：
 
 ```bash
-cd deploy/terraform/stacks/platform
 cp terraform.tfvars.example terraform.tfvars
-# 编辑 kubeconfig 路径。不要把 kubeconfig 或密码提交到 git。
+# 编辑 kubeconfig 路径。不要提交 terraform.tfvars，也不要把 kubeconfig 放进仓库。
+export TF_VAR_grafana_admin_password='用你自己的密码替换'
+# dev 可以不设。prod 必填，Terraform 用它创建 Secret ingest-auth。不要写进口令。
+export TF_VAR_ingest_token='用你自己的写入口令替换'
 terraform init
-terraform plan
-terraform apply
+terraform apply -target=module.central
 ```
 
-`make terraform-check` 会 `terraform fmt -check`、`init -backend=false` 和 `validate`。`make config-check` 会调用它。详细的 init、plan、apply、远端状态、按集群销毁见 [deploy/terraform/README.md](deploy/terraform/README.md)。
+`central_overlay = "prod"` 时不设置 `TF_VAR_ingest_token`，apply 会失败。example Secret 只说明对象的形状，不参与安装。
 
-先创建 Grafana 管理员 Secret（不要写进 git）：
+只装一个工作负载集群，或只拆掉其中一个，命令在 [deploy/terraform/README.md](deploy/terraform/README.md)。`terraform plan` 会读 kubeconfig。没有集群时跑 `make terraform-check`，不要对着空集群做 plan。
 
-```bash
-kubectl create namespace observability --dry-run=client -o yaml | kubectl apply -f -
-kubectl -n observability create secret generic grafana-admin \
-  --from-literal=admin-user=admin \
-  --from-literal=password='用你自己的密码替换'
-```
+增加一个 ToB 租户：改 `config/tenancy.yaml`，`make render-tenancy`，`make config-check`，再 `terraform apply`。生成的工作负载会随中心栈一起下去。
 
-构建 demo 并载入到集群运行时能看到的位置：
+Grafana 管理员密码没设置时，Deployment 仍引用 Secret `grafana-admin`，Pod 会停在 `CreateContainerConfigError`。补上 `TF_VAR_grafana_admin_password` 后再 apply。这是故意的，避免集群上静默使用 `admin/admin`。
+
+demo 镜像要先进入集群运行时能看到的位置，这一步不是安装可观测栈：
 
 ```bash
 docker build -t demo-app:local examples/demo-app
@@ -415,23 +417,12 @@ docker build -t demo-app:local examples/demo-app
 # minikube: minikube image load demo-app:local
 ```
 
-部署：
-
-配置在仓库的 `config/`，不在 `deploy/kubernetes/` 里面。Kustomize 默认禁止引用根目录之外的文件，所以要关掉这道限制，Compose 和集群才能继续共用同一份文件：
+排障时才用 kubectl，用来看状态，不用来安装：
 
 ```bash
-kustomize build --load-restrictor LoadRestrictionsNone deploy/kubernetes/overlays/dev | kubectl apply -f -
 kubectl -n observability get pods
-```
-
-`kubectl apply -k` 没有这个开关，直接用会拒绝生成 ConfigMap。生产 overlay 把 `dev` 换成 `prod`。
-
-Grafana 的 Deployment 引用这个 Secret。Secret 不存在时 Pod 会停在 `CreateContainerConfigError`，这是故意的，避免集群上静默使用 `admin/admin`。
-
-看 UI：
-
-```bash
 kubectl -n observability port-forward svc/grafana 3000:3000
+kustomize build --load-restrictor LoadRestrictionsNone deploy/kubernetes/overlays/dev
 ```
 
 应用如果跑在别的命名空间，把 OTLP 指到 `otel-collector.observability.svc:4317`。NetworkPolicy 允许任意命名空间访问 4317、4318、Grafana 3000 和 demo 8080，命名空间内部互通，出站目前放行（要访问 API server 和 DNS）。
@@ -514,7 +505,7 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 - 仓库里没有 token、密码和云厂商密钥。`deploy/docker-compose/.env.example` 里的 `admin` 是占位，真正的 `.env` 不入库。
 - Compose 把端口绑在 `127.0.0.1`。这只防护宿主机网卡，不防护已经在 Docker 网络里的容器。
 - 本地 Grafana 默认 `admin` / `admin`。这个组合只允许出现在你自己的笔记本上。Kubernetes 必须先建 Secret。
-- Remote write、Loki、Tempo、Pyroscope 和 Collector 的 OTLP 要求 `Authorization: Bearer`。口令来自 `INGEST_TOKEN` 或 Secret `ingest-auth`。本地占位 `dev-ingest-token` 写在 `deploy/docker-compose/.env.example` 和 dev overlay 里，不是生产口令。`/metrics` 和健康检查不带头。不要把 9090、3100、3200、4040、4317 暴露到公网或集群外。
+- Remote write、Loki、Tempo、Pyroscope 和 Collector 的 OTLP 要求 `Authorization: Bearer`。口令来自 `INGEST_TOKEN` 或 Secret `ingest-auth`。本地占位 `dev-ingest-token` 写在 `deploy/docker-compose/.env.example` 和 dev overlay 里，不是生产口令。生产口令只通过 `TF_VAR_ingest_token` 交给 Terraform。`/metrics` 和健康检查不带头。不要把 9090、3100、3200、4040、4317 暴露到公网或集群外。
 - Loki `auth_enabled: true`，Tempo `multitenancy_enabled: true`，Pyroscope `multitenancy_enabled: true`。org id 是允许表，不是用户 id，也不是口令。网关去掉 `Authorization` 之后，`X-Scope-OrgID` 仍会转到后端。
 - Alloy 为了主机指标把宿主机根目录只读挂进容器，Kubernetes 里还以 root 跑 DaemonSet。这是节点代理的权限，不是应用的权限。应用 Deployment 关掉了 ServiceAccount token，根文件系统只读，丢掉全部 capabilities。
 - cAdvisor 走 API server 代理，使用集群 CA，而不是 `insecure_skip_verify` 直连 kubelet。
@@ -569,7 +560,7 @@ make test
 - `amtool check-config`
 - `loki -verify-config`（本机有二进制时）
 - `kustomize build --load-restrictor LoadRestrictionsNone` 渲染 dev、prod 与 agent
-- `terraform fmt -check`、`terraform init -backend=false`、`terraform validate`（`make terraform-check`）
+- `terraform fmt -check`、覆盖检查（Kustomize 的 kind/name 必须出现在 Terraform 模块输入里）、`terraform init -backend=false`、`terraform validate`（`make terraform-check`）
 - `docker compose config`（有 Docker CLI 时；没有守护进程也可以只做配置渲染）
 - 编译并跑 demo 单测
 

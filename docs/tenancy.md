@@ -206,13 +206,13 @@ Remote write、Loki push、Tempo OTLP、Pyroscope ingest 前面是同一套 ngin
 
 网关要求 `Authorization: Bearer <token>`。`/metrics`、`/ready`、`/-/ready`、`/-/healthy` 不带这个头，给探针和 Prometheus 抓取用。`X-Scope-OrgID` 会原样转给后端。`Authorization` 在转到后端之前被去掉。
 
-口令只来自环境变量 `INGEST_TOKEN`，或 Kubernetes Secret `ingest-auth` 的键 `token`。仓库里没有真实口令。
+口令只来自环境变量 `INGEST_TOKEN`，或 Kubernetes Secret `ingest-auth` 的键 `token`。仓库里没有真实口令。生产集群上的这份 Secret 由 `terraform apply` 从 `TF_VAR_ingest_token` 创建。
 
 | 路径 | 口令从哪来 |
 | --- | --- |
 | Compose | `deploy/docker-compose/.env.example` 写 `INGEST_TOKEN=dev-ingest-token`。这是本地占位，不是生产口令。未设置时 Compose 也用这个默认值 |
 | dev overlay | `deploy/kubernetes/overlays/dev/ingest-auth.yaml` 是同一个占位，并标了 `not-for-production` |
-| prod | overlay 里没有占位。用 `deploy/kubernetes/ingest-auth.secret.example.yaml`（token 是 `replace-me`，不在任何 kustomization 里）或 `TF_VAR_ingest_token`。Terraform 在 apply 之后创建 Secret `ingest-auth`。变量留空则不创建 |
+| prod | overlay 里没有占位。`central_overlay=prod` 时必须设置 `TF_VAR_ingest_token`。Terraform 的 Kubernetes provider 创建 Secret `ingest-auth`，键 `token`。`deploy/kubernetes/ingest-auth.secret.example.yaml` 只说明形状（token 是 `replace-me`），不在任何 kustomization 里，也不要 kubectl apply |
 
 Collector 的 OTLP receiver 用 `bearertokenauth`。Alloy 的 remote write 和 `loki.write`、demo 的 OTLP exporter 和 Pyroscope SDK 都带同一个 Bearer。Grafana 数据源用 `$__env{INGEST_AUTHORIZATION}`，值必须是完整的 `Bearer <token>`，同时仍发送正确的 `X-Scope-OrgID`。
 

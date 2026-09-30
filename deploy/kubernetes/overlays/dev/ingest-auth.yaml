@@ -1,10 +1,11 @@
 # Local/dev placeholder. Not for production.
-# Prod does not include this object. Create Secret ingest-auth there from
-# deploy/kubernetes/ingest-auth.secret.example.yaml or TF_VAR_ingest_token.
+# Prod does not include this object. terraform apply creates it from
+# TF_VAR_ingest_token. The example file only documents the Secret shape.
 apiVersion: v1
 kind: Secret
 metadata:
   name: ingest-auth
+  namespace: observability
   labels:
     app.kubernetes.io/name: ingest-auth
     observability.platform/not-for-production: "true"

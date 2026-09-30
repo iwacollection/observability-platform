@@ -17,3 +17,13 @@ output "grafana_secret_managed" {
   value       = var.grafana_admin_password != null
   description = "True when Terraform created the grafana-admin Secret."
 }
+
+output "ingest_secret_managed" {
+  value       = var.overlay == "prod"
+  description = "True when the Kubernetes provider creates Secret ingest-auth. Dev uses the overlay placeholder instead."
+}
+
+output "managed_component_names" {
+  value       = sort(tolist(local.required_components))
+  description = "Platform components this module declares. The coverage check compares them to kustomize output."
+}

@@ -1,39 +1,136 @@
 # Terraform
 
-Terraform 管理两件事：中心集群上的可观测栈，以及每个工作负载集群上的采集 agent。清单仍是 `config/` 和 `deploy/kubernetes` 里的 YAML。Kustomize 把它们渲染出来，`deploy/terraform/scripts/kubectl-apply.sh` 用指定的 kubeconfig 执行 `kubectl apply`。不要另抄一份 Deployment。
+集群里的可观测组件只通过这一条路径安装：`deploy/terraform/stacks/platform` 的 `terraform apply`。YAML 仍是清单来源，Kustomize 负责渲染。人不需要再单独 `kubectl apply` 这套栈。
 
-Kubernetes provider 钉在 `hashicorp/kubernetes` `2.38.0`。Terraform CLI 需要 `>= 1.6.0`。校验用的是本机的 1.14.3，不要求一定是这个补丁版本。
+本机 Docker Compose 不走 Terraform。`deploy/docker-compose/` 仍是笔记本上的入口。
+
+Kubernetes provider 钉在 `hashicorp/kubernetes` `2.38.0`。Terraform CLI 需要 `>= 1.6.0`。
+
+## 一条命令路径
+
+在 `deploy/terraform/stacks/platform` 下操作。
+
+### 准备 kubeconfig 和口令
+
+```bash
+cd deploy/terraform/stacks/platform
+cp terraform.tfvars.example terraform.tfvars
+```
+
+编辑 `terraform.tfvars` 里的 kubeconfig 路径和 context。每个集群一个文件。不要提交 `terraform.tfvars`，也不要把 kubeconfig 放进仓库。
+
+口令用环境变量，不写进 tfvars，也不要写进 git：
+
+```bash
+export TF_VAR_grafana_admin_password='用你自己的密码替换'
+export TF_VAR_ingest_token='用你自己的写入口令替换'
+```
+
+`TF_VAR_ingest_token` 是 sensitive。
+
+| overlay | Secret `ingest-auth` |
+| --- | --- |
+| `dev` | Kustomize 里已有本地占位。变量留空就不会覆盖它。这个占位不是生产口令 |
+| `prod` | 必填。Kubernetes provider 创建 Secret，键是 `token`。不设置则 apply 失败 |
+
+`deploy/kubernetes/ingest-auth.secret.example.yaml` 只说明 Secret 的形状，token 写的是 `replace-me`。它不在任何 kustomization 里。不要 kubectl apply 它来完成安装。
+
+工作负载集群上的 Alloy 和 Collector 也读这份 Secret。中心是 prod 时，同一个 `TF_VAR_ingest_token` 会写到每个启用的工作负载集群。中心是 dev、又要让工作负载集群连上来时，把变量设成你正在用的那串口令（本地占位或你自己的值）。留空则工作负载集群没有这个 Secret，Pod 起不来。
+
+Grafana 密码同理：没设置时不会创建 Secret `grafana-admin`，Pod 停在 `CreateContainerConfigError`。补上变量后再 apply。
+
+`terraform plan` 和 `terraform apply` 都会加载三个 provider alias，所以 `central`、`prod-a`、`prod-b` 的 kubeconfig 文件必须存在，即使这次只改其中一个集群。没有这些文件时不要 plan。没有集群时的检查是：
+
+```bash
+make terraform-check
+```
+
+它会 `terraform fmt -check`、对照 Kustomize 渲染结果和模块输入、`terraform init -backend=false`、`terraform validate`。`make config-check` 会调用它。`validate` 不连接 API server。
+
+### init
+
+```bash
+terraform init
+```
+
+默认状态是本地 `terraform.tfstate`，已被 gitignore。口令如果进了 state，远端 backend 必须加密。样例在 `backend.tf.example`，复制成 `backend.tf` 后自己填，不要提交带密钥的 backend。
+
+### 应用中心栈
+
+`central_overlay` 取 `dev` 或 `prod`。`central_cluster_name` 只能是 `local`。
+
+```bash
+terraform apply -target=module.central
+```
+
+这一次会装上中心集群里的全部平台组件：Prometheus、Alertmanager、Loki、Tempo、Pyroscope、Grafana、ingest 网关（挂在 Prometheus / Loki / Tempo / Pyroscope 上的 sidecar）、OTel Collector、Alloy、node-exporter、kube-state-metrics、Redis / PostgreSQL / Nginx / Kafka 和各自的 exporter、ToC / ToB 工作负载（含 `demo-app`）、命名空间 `observability`、NetworkPolicy、ConfigMap（含仪表盘和规则），以及 prod 的 Secret `ingest-auth`。dev 的占位 Secret 在 overlay 里，随同一次 apply 下去。
+
+### 应用一个工作负载集群
+
+```bash
+terraform apply -target='module.workload["prod-a"]' -target=module.binding_prod_a
+```
+
+`prod-b` 把名字换成 `prod-b` 和 `module.binding_prod_b`。
+
+工作负载集群只装命名空间、Alloy、两个副本的 Collector、node-exporter、kube-state-metrics、NetworkPolicy、ConfigMap `observability-endpoints`，以及 Secret `ingest-auth`（变量非空时）。不装 Prometheus、Loki、Tempo、Pyroscope、Grafana。
+
+两个都要：
+
+```bash
+terraform apply
+```
+
+### 只销毁一个工作负载集群
+
+把那个集群的 `enabled` 设为 `false`，键留在 map 里，然后：
+
+```bash
+terraform apply
+```
+
+`prod-a` 的 `enabled = false` 会删掉该 kubeconfig 上的 agent 清单、`observability-endpoints` 和 `ingest-auth`，并删掉 `observability-cluster-binding`。`prod-b` 和中心栈不动。
+
+不要删掉键。`kubernetes.prod_a` 的 `config_path` 在 plan 时就会读它，键没了，销毁进行不下去。
+
+销毁整个中心栈是 `terraform destroy`。那会删掉中心 overlay 里的资源。工作负载集群仍会尝试写入，直到它们自己被禁用。
+
+### 增加一个 ToB 租户
+
+租户不是集群，不需要新的 provider alias。
+
+1. 改 `config/tenancy.yaml` 里的 `business_lines.tob.tenants`。`org_id` 写成 `tob-<id>`。id 是 DNS 标签，不是用户 id。
+2. 把同一个 id 写进 `examples/demo-app/src/demo_app/identity.py` 的 `TOB_TENANTS`。
+3. `make render-tenancy`，然后 `make config-check`。
+4. `terraform apply`，或只 `-target=module.central`。
+
+`scripts/render_tenancy.py` 会改 Collector 路由、Grafana 数据源、Prometheus 规则、Compose 进程和 Kubernetes 工作负载。`stacks/platform/tenancy.tf` 读取同一份 yaml，把除 `demo-app` 以外的 Deployment / Service 名字传给 `module.central`。`terraform apply` 把渲染结果随中心栈的 Kustomize 下发。`toc-api` 仍是已有的 `demo-app`，不会再复制一份 Deployment。
+
+`make config-check` 会失败，如果渲染出来的对象没有出现在模块的 `managed_resources.yaml` 里，或者 `config/tenancy.yaml` 里的工作负载没有出现在 Kustomize 输出里。覆盖检查不连接集群。
 
 ## 目录
 
 | 路径 | 作用 |
 | --- | --- |
-| `modules/central` | 对 `deploy/kubernetes/overlays/dev` 或 `prod` 做 apply。可选创建 Secret `grafana-admin` |
-| `modules/cluster_agent` | 对 `deploy/kubernetes/agent` 做 apply，并写入 ConfigMap `observability-endpoints` |
-| `modules/cluster_binding` | 用 Kubernetes provider 在该集群写入 ConfigMap `observability-cluster-binding` |
-| `stacks/platform` | 示例：一个中心栈，加上 `workload_clusters` 的 `for_each` |
+| `modules/central` | 对 `overlays/dev` 或 `prod` 做 apply。prod 时创建 Secret `ingest-auth`。可选创建 Secret `grafana-admin` |
+| `modules/central/managed_resources.yaml` | 中心栈对象清单。覆盖检查的输入 |
+| `modules/cluster_agent` | 对 `deploy/kubernetes/agent` 做 apply，并写入 `observability-endpoints` 和 `ingest-auth` |
+| `modules/cluster_agent/managed_resources.yaml` | 工作负载集群对象清单 |
+| `modules/cluster_binding` | 用 Kubernetes provider 写入 ConfigMap `observability-cluster-binding` |
+| `stacks/platform` | 一个中心栈，加上 `workload_clusters` 的 `for_each` |
+| `stacks/platform/tenancy.tf` | 读取 `config/tenancy.yaml` |
 | `stacks/platform/terraform.tfvars.example` | 变量样例。复制成 `terraform.tfvars`，该文件被 gitignore |
 | `stacks/platform/backend.tf.example` | 远端状态样例，Terraform 不会加载它 |
-| `scripts/kubectl-apply.sh` | `apply` 或 `delete`。需要本机有 `kubectl` 和 `kustomize` |
-
-## 租户目录
-
-业务线和租户不在 tfvars 里再抄一份。`stacks/platform/tenancy.tf` 读取仓库根的 `config/tenancy.yaml`。增加一个 ToB 租户：
-
-1. 改 yaml 里的 `business_lines.tob.tenants`，`org_id` 写成 `tob-<id>`。
-2. 把同一个 id 写进 `examples/demo-app/src/demo_app/identity.py` 的 `TOB_TENANTS`。
-3. `make render-tenancy`，然后 `make config-check`。
-4. `terraform apply`。生成的 Collector、数据源、规则和工作负载会随中心栈的 Kustomize 一起应用。
-
-`terraform plan` 会检查租户 id 是 DNS 标签，并且 org id 等于 `tob-<id>`。输出 `tob_tenant_ids` 和 `tenancy_org_ids`。
-
-这仍然不是「一个租户一个 Kubernetes provider」。租户是中心栈里的数据。`for_each` 不能给每个实例换 provider alias，所以工作负载集群的 agent 继续用各自的 kubeconfig 调 `kubectl`。增加集群和增加租户是两件不同的事。
+| `scripts/kubectl-apply.sh` | 仅由 Terraform 的 local-exec 调用。不要手跑它来安装 |
+| `scripts/check-coverage.py` | 无集群覆盖检查 |
 
 ## 为什么 YAML 还在
 
-Compose 用 bind mount 读取 `config/`。Kustomize 的 `configMapGenerator` 也指向这些文件。如果 Terraform 再用 template 生成第二份 Prometheus 配置，两边会分叉。所以 Terraform 不渲染业务配置，只决定哪个 kubeconfig、哪个集群名、哪组中心 URL。
+Compose 用 bind mount 读取 `config/`。Kustomize 的 `configMapGenerator` 也指向这些文件。Terraform 再生成第二份 Prometheus 配置，两边会分叉。所以 Terraform 不渲染业务配置，只决定哪个 kubeconfig、哪个集群名、哪组中心 URL，以及 prod 的写入口令。
 
-中心栈的 `cluster` 标签在 `config/prometheus/prometheus.yml` 里钉成 `local`，和 Compose 相同。变量 `central_cluster_name` 因此只接受 `local`。要改这个名字，必须同时改 Prometheus 的 `replacement`、`deploy/kubernetes/base/endpoints.yaml` 和这个变量。
+中心栈的 `cluster` 标签在 `config/prometheus/prometheus.yml` 里钉成 `local`。变量 `central_cluster_name` 只接受 `local`。要改这个名字，必须同时改 Prometheus 的 `replacement`、`deploy/kubernetes/base/endpoints.yaml` 和这个变量。
+
+清单变更会替换 `terraform_data.stack_apply`（或 `agent_apply`）并重新 apply。销毁钩子是另一个资源，配置变更不会先把整栈 `kubectl delete` 掉。`terraform destroy` 或关掉一个工作负载集群时才会删除。
 
 ## Provider alias 和 for_each
 
@@ -45,61 +142,13 @@ Compose 用 bind mount 读取 `config/`。Kustomize 的 `configMapGenerator` 也
 | `kubernetes.prod_a` | `var.workload_clusters["prod-a"].kubeconfig` |
 | `kubernetes.prod_b` | `var.workload_clusters["prod-b"].kubeconfig` |
 
-`module "central"` 使用 `kubernetes.central`。`module "binding_prod_a"` 和 `binding_prod_b` 使用对应的工作负载 alias，在命名空间 `observability` 里创建 `observability-cluster-binding`。
+`module "central"` 使用 `kubernetes.central`，用来创建 Grafana 和 prod ingest 的 Secret。`module "binding_prod_a"` 和 `binding_prod_b` 使用对应的工作负载 alias。
 
-`module "workload"` 使用 `for_each = local.enabled_workload_clusters`。Terraform 不能给 `for_each` 的每个实例传递不同的 provider alias，所以 agent 清单不走 Kubernetes provider，而由模块里的 `terraform_data` 调用 `kubectl --kubeconfig`。kubeconfig 路径来自 map。增加集群时，DaemonSet 和 Collector 不用复制。
+`module "workload"` 使用 `for_each = local.enabled_workload_clusters`。Terraform 不能给 `for_each` 的每个实例传递不同的 provider alias，所以 agent 清单不走 Kubernetes provider，而由模块里的 `terraform_data` 按该集群的 kubeconfig 调用 `kubectl`。增加集群时，DaemonSet 和 Collector 不用复制。
 
-示例要求 map 里始终有键 `prod-a` 和 `prod-b`，因为 provider 块引用了它们。不想要其中一个集群时，把 `enabled` 设为 `false`，不要删掉键。
-
-## 初始化、计划、应用
-
-在有 kubeconfig、kubectl、kustomize 的机器上：
-
-```bash
-cd deploy/terraform/stacks/platform
-cp terraform.tfvars.example terraform.tfvars
-# 把 kubeconfig 路径改成你机器上的文件。不要提交 terraform.tfvars。
-terraform init
-terraform plan
-terraform apply
-```
-
-`terraform.tfvars.example` 里的 URL 主机是 `prometheus.central.example.invalid` 等。`.invalid` 是保留域名。plan 可以展示变更，apply 在 kubeconfig 指向真实集群且网络可达之前不会把数据送进中心栈。
-
-Grafana 密码不要写进 tfvars。需要 Terraform 创建 Secret 时：
-
-```bash
-export TF_VAR_grafana_admin_password='用你自己的密码替换'
-terraform apply
-```
-
-不设置这个变量时，Secret 不会被创建。中心 Grafana 的 Deployment 仍然引用 `grafana-admin`，Pod 会停在 `CreateContainerConfigError`，直到你用 kubectl 创建它。这和原来的 README 一样。
-
-没有集群时只做静态检查：
-
-```bash
-make terraform-check
-```
-
-它执行：
-
-```bash
-terraform fmt -check -recursive -diff deploy/terraform
-terraform -chdir=deploy/terraform/stacks/platform init -backend=false -input=false
-terraform -chdir=deploy/terraform/stacks/platform validate
-```
-
-`validate` 不连接 API server，也不读取 kubeconfig 文件。`make config-check` 会调用这段检查。
-
-## 状态
-
-默认是本地状态文件 `terraform.tfstate`，已被 gitignore。如果设置了 `grafana_admin_password`，密码会出现在 state 里。
-
-要换远端状态，参考 `backend.tf.example`，复制成 `backend.tf` 后自行填写 bucket。不要提交带账号或密钥的 `backend.tf`。远端状态需要加密。换 backend 之后重新 `terraform init`。
+示例要求 map 里始终有键 `prod-a` 和 `prod-b`。不想要其中一个时，把 `enabled` 设为 `false`，不要删掉键。
 
 ## 每个集群的 kubeconfig
-
-每个 alias 一个文件或一个 context。示例：
 
 ```hcl
 central_kubeconfig   = "~/.kube/observability-central"
@@ -114,70 +163,63 @@ workload_clusters = {
 }
 ```
 
-`context` 可以省略，这时使用该 kubeconfig 的当前 context。不要把这些文件放进仓库。
-
-## 只销毁一个工作负载集群
-
-把那个集群的 `enabled` 设为 `false`，然后 `terraform apply`。
-
-`prod-a` 的 `enabled = false` 会：
-
-- 从 `module.workload` 的 `for_each` 里去掉 `prod-a`，销毁时对该 kubeconfig 执行 `kubectl delete`（agent 清单和 `observability-endpoints`）
-- 把 `module.binding_prod_a` 的 count 设为 0，删掉 `observability-cluster-binding`
-
-`prod-b` 和中心栈不动。键 `prod-a` 要留在 map 里，否则 `kubernetes.prod_a` 的 `config_path` 会在 plan 时直接报错，销毁进行不下去。
-
-销毁中心栈是 `terraform destroy`，或者对 `module.central` 做针对性销毁。那会删掉中心 overlay 里的资源。工作负载集群仍会尝试 remote write，直到它们自己被禁用。
+`context` 可以省略，这时使用该 kubeconfig 的当前 context。示例 URL 的主机是 `prometheus.central.example.invalid`。`.invalid` 是保留域名，不是真实地址。
 
 ## 增加第三个集群
 
 假设新集群叫 `prod-c`。
 
-1. 在 `terraform.tfvars` 的 `workload_clusters` 增加 `prod-c`，字段和 `prod-a` 相同：`kubeconfig`、可选 `context`、五条中心 URL。`enabled` 默认 true。键必须是 DNS label，它会变成标签 `cluster="prod-c"`。
-2. 在 `stacks/platform/providers.tf` 增加 alias，kubeconfig 取自 `var.workload_clusters["prod-c"].kubeconfig`。写法照 `prod_a`。
-3. 在 `stacks/platform/main.tf` 增加 `module "binding_prod_c"`，`source` 仍是 `../../modules/cluster_binding`，`providers` 指向新 alias，`cluster_name = "prod-c"`，`enabled = var.workload_clusters["prod-c"].enabled`，`depends_on = [module.workload]`。
-4. `module "workload"` 的 `for_each` 会自动包含 `prod-c`，不需要复制 `deploy/kubernetes` 里的 YAML。
-5. 在 `variables.tf` 的校验里，如果希望缺键就失败，把 `prod-c` 加进 `contains(keys(...))` 列表。示例校验目前只强制 `prod-a` 和 `prod-b`。
-
-`terraform apply` 之后，中心 Grafana 把变量 `cluster` 选成 `prod-c`。看不到数据时按 [docs/multi-cluster.md](../../docs/multi-cluster.md) 的顺序查 ConfigMap、Alloy 日志和 `count by (cluster) (up)`。
+1. 在 `terraform.tfvars` 的 `workload_clusters` 增加 `prod-c`，字段和 `prod-a` 相同。`enabled` 默认 true。键必须是 DNS label，它会变成标签 `cluster="prod-c"`。
+2. 在 `stacks/platform/providers.tf` 增加 alias，kubeconfig 取自 `var.workload_clusters["prod-c"].kubeconfig`。
+3. 在 `stacks/platform/main.tf` 增加 `module "binding_prod_c"`，`providers` 指向新 alias，`cluster_name = "prod-c"`，`enabled = var.workload_clusters["prod-c"].enabled`，`depends_on = [module.workload]`。
+4. `module "workload"` 的 `for_each` 会包含 `prod-c`。不要复制 `deploy/kubernetes` 里的 YAML。
+5. 若希望缺键就失败，把 `prod-c` 加进 `variables.tf` 的 `contains(keys(...))` 列表。示例校验目前只强制 `prod-a` 和 `prod-b`。
 
 ## 变量
-
-中心：
 
 | 变量 | 默认 | 含义 |
 | --- | --- | --- |
 | `central_kubeconfig` | 无，必填 | 中心 kubeconfig 路径 |
 | `central_kube_context` | `""` | 空则用文件当前 context |
-| `central_overlay` | `dev` | `dev` 或 `prod` |
+| `central_overlay` | `dev` | `dev` 或 `prod`。prod 要求 `TF_VAR_ingest_token` |
 | `central_cluster_name` | `local` | 必须是 `local` |
 | `grafana_admin_user` | `admin` | Secret 里的用户名 |
 | `grafana_admin_password` | `null` | sensitive。null 表示不创建 Secret |
-| `ingest_token` | `null` | sensitive。null 表示 apply 脚本不写 Secret `ingest-auth` |
+| `ingest_token` | `null` | sensitive。用 `TF_VAR_ingest_token` 传入 |
 | `workload_collector_replicas` | `2` | 只改工作负载集群 Collector 的副本，范围 2 到 5 |
 
-工作负载 map 的每个对象：
+工作负载 map 的每个对象：`enabled`、`kubeconfig`、可选 `context`、`prometheus_remote_write_url`、`loki_push_url`、`loki_otlp_endpoint`、`tempo_otlp_endpoint`（`host:4317`，不带 `http://`）、`pyroscope_otlp_endpoint`、`pyroscope_http_url`。
 
-| 字段 | 含义 |
-| --- | --- |
-| `enabled` | 默认 true。false 只销毁这一项 |
-| `kubeconfig` | 该集群的 kubeconfig |
-| `context` | 可选 |
-| `prometheus_remote_write_url` | 中心 `/api/v1/write` |
-| `loki_push_url` | 中心 `/loki/api/v1/push` |
-| `loki_otlp_endpoint` | 中心 `/otlp` |
-| `tempo_otlp_endpoint` | `host:4317`，不带 `http://` |
-| `pyroscope_otlp_endpoint` | `host:4040` |
-| `pyroscope_http_url` | SDK 用的 `http://host:4040` |
+输出 `central_managed_components` 是中心模块声明的组件。`generated_workload_names` 是从 `config/tenancy.yaml` 算出的工作负载名。`tob_tenant_ids` 和 `tenancy_org_ids` 来自同一份 yaml。
 
-输出 `workload_clusters` 是当前会 apply 的集群名。`workload_remote_write_urls` 是它们的 remote write 地址。
+## 副本
 
-## 副本和写入口令
+`workload_collector_replicas` 默认 2。它只传给工作负载模块。两份 Pod 挂同一份 ConfigMap。中心栈的 Collector 保持 1。Alloy 保持 DaemonSet。
 
-`workload_collector_replicas` 默认 2。它只传给工作负载模块。`kubectl-apply.sh` 在 apply 之前改写 agent 清单里 `otel-collector` Deployment 的 `replicas`。两份 Pod 挂同一份 ConfigMap。中心栈的 Collector 保持 1。Alloy 保持 DaemonSet：它挂节点目录并按 `NODE_NAME` 过滤，同一节点上再放一个 Pod 会抓两遍。
+Prometheus、Loki、Tempo、Pyroscope 保持 1。它们的数据在本地盘或 emptyDir 上。再加一个副本会写两份互不相识的磁盘，不是 HA。下一步是共享对象存储，然后才能谈存储副本。
 
-Prometheus、Loki、Tempo、Pyroscope 在这份 Terraform 里保持 1。它们的数据在本地盘或 emptyDir 上。再加一个副本会写两份互不相识的磁盘，不是 HA。下一步是给 Loki、Tempo、Pyroscope 接共享对象存储，指标侧再迁到 Mimir，然后才能谈存储副本。不要为了看起来像 HA 去改这些 Deployment 的 replicas。
+工作负载 Collector 打开了 tail sampling。两个副本各自采样。这不是链路 HA。
 
-工作负载 Collector 打开了 tail sampling。两个副本各自采样。一条 trace 的 span 如果打到不同副本，采样决策不是全局的。这不是链路 HA。
+## 覆盖检查
 
-`ingest_token` 是 sensitive，默认 null。非空时 apply 脚本创建 Secret `ingest-auth`，键 `token`。dev overlay 已经带本地占位 `dev-ingest-token`，变量留空时不会覆盖它。prod overlay 不含这个占位，要设置 `TF_VAR_ingest_token` 或套用 `deploy/kubernetes/ingest-auth.secret.example.yaml`。不要把口令写进 tfvars。和 Grafana 密码一样，state 里可能出现这个值。远端 backend 要加密。
+`deploy/terraform/scripts/check-coverage.py` 做三件事：
+
+1. `kustomize build` dev、prod、agent。
+2. 读三个模块的 `managed_resources.yaml`，以及 `config/tenancy.yaml` 里生成的工作负载名。
+3. 渲染结果里的 kind/name 必须落在这份清单里。清单里标了某个 overlay 的对象也必须出现在渲染结果里。ConfigMap 的内容哈希会被剥掉，对的是生成器的逻辑名。
+
+prod 渲染结果里不能出现 Secret `ingest-auth`。这份 Secret 只由 `kubernetes_secret_v1.ingest_auth` 创建。dev 渲染结果里必须有占位 Secret。
+
+漏掉 Prometheus、规则 ConfigMap、仪表盘 JSON、五层仪表盘、ingest 网关 sidecar、ToB 工作负载，检查都会失败。这个检查不需要 kubeconfig。
+
+## 排障时的 kubectl
+
+安装不要用。对照渲染结果或看 Pod 时可以用：
+
+```bash
+kustomize build --load-restrictor LoadRestrictionsNone deploy/kubernetes/overlays/dev
+kubectl -n observability get pods
+kubectl -n observability port-forward svc/grafana 3000:3000
+```
+
+`kubectl apply -k` 没有 `--load-restrictor`，会拒绝生成 ConfigMap。

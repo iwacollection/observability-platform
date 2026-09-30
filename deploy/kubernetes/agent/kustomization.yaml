@@ -4,9 +4,9 @@ kind: Kustomization
 # deploy/kubernetes/base and the dev/prod overlays. This kustomization
 # reuses those manifests; it does not copy them.
 #
-# observability-endpoints is not included. Terraform (or a manual
-# kubectl apply of base/endpoints.yaml) must create that ConfigMap before
-# the pods start. The central overlay includes the ConfigMap itself.
+# observability-endpoints is not included. modules/cluster_agent writes
+# that ConfigMap during terraform apply, then rolls the agent pods.
+# The central overlay includes the ConfigMap itself.
 namespace: observability
 resources:
   - ../base/namespace.yaml

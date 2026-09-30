@@ -6,13 +6,14 @@ central_kube_context = "central"
 central_overlay      = "dev"
 central_cluster_name = "local"
 
-# Leave grafana_admin_password unset. Export TF_VAR_grafana_admin_password
-# or create the grafana-admin Secret with kubectl. Do not commit a password.
+# Leave grafana_admin_password unset in this file. Export
+# TF_VAR_grafana_admin_password. Do not commit a password.
 #
-# Leave ingest_token unset for the dev overlay. That overlay already contains
-# Secret ingest-auth with the local placeholder dev-ingest-token, which is
-# not a production credential. For prod, export TF_VAR_ingest_token to a
-# value you do not commit. See deploy/kubernetes/ingest-auth.secret.example.yaml.
+# Leave ingest_token unset in this file. The dev overlay already contains
+# Secret ingest-auth with the local placeholder, which is not a production
+# credential. For prod, export TF_VAR_ingest_token. Terraform creates the
+# Secret. Do not kubectl-apply deploy/kubernetes/ingest-auth.secret.example.yaml.
+# A workload cluster also needs that variable or its collector cannot authenticate.
 #
 # workload_collector_replicas defaults to 2. It scales only the workload
 # cluster collector. It does not add a second Prometheus, Loki, Tempo, or

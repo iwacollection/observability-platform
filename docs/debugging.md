@@ -33,7 +33,7 @@ Kubernetes 上同名 Service 在命名空间 `observability`：`kubectl -n obser
 make config-check
 ```
 
-脚本 `scripts/config-check.sh` 会核对 `deploy/images.env`、解析 YAML/JSON、用本机的 `alloy` 检查 River、用 `otelcol-contrib validate --feature-gates service.profilesSupport` 检查 Collector、`promtool check rules` 和 `promtool test rules config/prometheus/tests/alerts_test.yml`、`amtool check-config`、有二进制时 `loki -verify-config`、`kustomize build --load-restrictor LoadRestrictionsNone`、有 Docker CLI 时 `docker compose config`，并跑 demo 单测。
+脚本 `scripts/config-check.sh` 会核对 `deploy/images.env`、解析 YAML/JSON、用本机的 `alloy` 检查 River、用 `otelcol-contrib validate --feature-gates service.profilesSupport` 检查 Collector、`promtool check rules` 和 `promtool test rules config/prometheus/tests/alerts_test.yml`、`amtool check-config`、有二进制时 `loki -verify-config`、`kustomize build --load-restrictor LoadRestrictionsNone`、Terraform 覆盖检查、有 Docker CLI 时 `docker compose config`，并跑 demo 单测。
 
 单独重跑规则测试：
 

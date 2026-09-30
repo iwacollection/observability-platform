@@ -12,13 +12,14 @@ module "central" {
     kubernetes.this = kubernetes.central
   }
 
-  kubeconfig             = var.central_kubeconfig
-  kube_context           = var.central_kube_context
-  overlay                = var.central_overlay
-  cluster_name           = var.central_cluster_name
-  grafana_admin_user     = var.grafana_admin_user
-  grafana_admin_password = var.grafana_admin_password
-  ingest_token           = var.ingest_token
+  kubeconfig               = var.central_kubeconfig
+  kube_context             = var.central_kube_context
+  overlay                  = var.central_overlay
+  cluster_name             = var.central_cluster_name
+  grafana_admin_user       = var.grafana_admin_user
+  grafana_admin_password   = var.grafana_admin_password
+  ingest_token             = var.ingest_token
+  generated_workload_names = local.generated_workload_names
 }
 
 module "workload" {
@@ -36,6 +37,7 @@ module "workload" {
   pyroscope_http_url          = each.value.pyroscope_http_url
   collector_replicas          = var.workload_collector_replicas
   ingest_token                = var.ingest_token
+  require_ingest_token        = var.central_overlay == "prod"
 }
 
 module "binding_prod_a" {

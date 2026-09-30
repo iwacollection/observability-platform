@@ -13,6 +13,16 @@ variable "central_overlay" {
   type        = string
   default     = "dev"
   description = "deploy/kubernetes/overlays name for the central stack."
+
+  validation {
+    condition     = contains(["dev", "prod"], var.central_overlay)
+    error_message = "central_overlay must be dev or prod."
+  }
+
+  validation {
+    condition     = var.central_overlay != "prod" || (var.ingest_token != null && var.ingest_token != "")
+    error_message = "central_overlay=prod requires TF_VAR_ingest_token. Terraform creates Secret ingest-auth from that variable. Do not kubectl-apply the example Secret, and do not commit the token."
+  }
 }
 
 variable "central_cluster_name" {
@@ -38,7 +48,7 @@ variable "ingest_token" {
   type        = string
   default     = null
   sensitive   = true
-  description = "Bearer token for remote write, Loki, Tempo, and Pyroscope ingest. Null skips Secret creation. The dev overlay already has the placeholder dev-ingest-token. Never commit this."
+  description = "Bearer token for Secret ingest-auth. Sensitive. Pass it as TF_VAR_ingest_token, never in tfvars or git. Required when central_overlay is prod. The dev overlay already contains the local placeholder dev-ingest-token."
 }
 
 variable "workload_collector_replicas" {

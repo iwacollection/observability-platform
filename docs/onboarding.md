@@ -141,7 +141,7 @@ curl -sS -H 'Content-Type: application/json' \
   http://127.0.0.1:3100/loki/api/v1/push
 ```
 
-`dev-ingest-token` 是本地占位。生产换成 Secret `ingest-auth` 里的口令。
+`dev-ingest-token` 是本地占位。生产口令放在 `TF_VAR_ingest_token`，由 Terraform 写入 Secret `ingest-auth`。
 
 应用日志平时不走这条 curl，而走 Collector。Collector 按 `config/tenancy.yaml` 的允许表选择 org。`service_name`、`tenant`、`business_line`、`cluster` 可以当标签。不要把用户 id 放进 `stream`。接入步骤在 [tenancy.md](tenancy.md)。
 

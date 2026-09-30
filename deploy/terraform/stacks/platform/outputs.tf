@@ -34,3 +34,13 @@ output "workload_remote_write_urls" {
   }
   description = "Central remote-write URL configured for each applied workload cluster."
 }
+
+output "central_managed_components" {
+  value       = module.central.managed_component_names
+  description = "Components the central module declares and terraform apply installs."
+}
+
+output "generated_workload_names" {
+  value       = local.generated_workload_names
+  description = "ToC and ToB workload names from config/tenancy.yaml, excluding demo-app."
+}

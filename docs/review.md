@@ -48,7 +48,7 @@ README「五层和后续演进」写的是「而不是在这个仓库里拆成�
 
 这次改了什么：
 
-- `deploy/terraform/modules/central` 对 `deploy/kubernetes/overlays/<dev|prod>` 做 kustomize build 再 `kubectl apply`。YAML 仍是清单来源。
+- 人的安装入口是 `terraform apply`。`deploy/terraform/modules/central` 在 apply 时对 `deploy/kubernetes/overlays/<dev|prod>` 做 kustomize build，再由脚本调用 kubectl。YAML 仍是清单来源。不要把 kubectl 当成另一条安装路径。
 - `deploy/terraform/modules/cluster_agent` 对 `deploy/kubernetes/agent` 做同样的事，并写入该集群的 `observability-endpoints` ConfigMap。
 - `deploy/terraform/stacks/platform` 用 `module "workload" { for_each = ... }` 实例化 agent。示例 map 里有 `prod-a` 和 `prod-b`。
 - Provider 钉在 `hashicorp/kubernetes` `2.38.0`。alias `central`、`prod_a`、`prod_b` 各自绑定 kubeconfig。`modules/cluster_binding` 用对应 alias 在该集群写入 `observability-cluster-binding`。
@@ -78,7 +78,7 @@ Remote write、Loki、Tempo、Pyroscope 都没有认证。Postgres 是 `trust`�
 
 - `grafana_admin_password` 是 sensitive 变量，默认 `null`。只有显式设置时，`modules/central` 才创建 Secret `grafana-admin`。`terraform.tfvars.example` 不写密码。
 - kubeconfig 只出现在变量里。`terraform.tfvars` 和 `*.tfstate` 被 gitignore。`backend.tf.example` 说明远端状态要加密，因为 state 可能含有 Grafana 密码。
-- 写入路径前面有 nginx 网关。口令是 sensitive 变量 `ingest_token`，默认 `null`，apply 时写入 Secret `ingest-auth`。仓库里只有 example 和 dev 占位 `dev-ingest-token`，没有真实口令。导出仍是明文 HTTP（`tls.insecure: true`），没有 mTLS。
+- 写入路径前面有 nginx 网关。口令是 sensitive 变量 `ingest_token`，默认 `null`。prod overlay 由 Kubernetes provider 写入 Secret `ingest-auth`。dev overlay 自带占位。仓库里只有 example 形状和 dev 占位 `dev-ingest-token`，没有真实口令。导出仍是明文 HTTP（`tls.insecure: true`），没有 mTLS。
 
 ## 6. 标签基数
 
@@ -130,5 +130,5 @@ Remote write、Loki、Tempo、Pyroscope 都没有认证。Postgres 是 `trust`�
 - Prometheus、Loki、Tempo、Pyroscope 仍是单进程本地盘。再加一个副本会写两份互不相识的磁盘，不是 HA。下一步是共享对象存储（Loki scalable、Tempo 与 Pyroscope 的对象存储后端，指标侧是 Mimir），然后才能谈存储副本。
 - 工作负载 Collector 的两个副本各自做 tail sampling。一条 trace 的 span 打到不同副本时，采样决策不是全局的。这不是链路 HA。
 - OTLP profiles 在 collector 0.161 上不能按租户分头。
-- 组件之间没有 mTLS。prod 的 `ingest-auth` 只有在设置 `TF_VAR_ingest_token` 或套用 example Secret 之后才存在。
+- 组件之间没有 mTLS。prod 的 `ingest-auth` 只在设置 `TF_VAR_ingest_token` 并 `terraform apply` 之后存在。example 文件不参与 apply。
 - Prometheus 没有换成 Mimir。

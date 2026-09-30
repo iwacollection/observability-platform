@@ -64,5 +64,11 @@ variable "ingest_token" {
   type        = string
   default     = null
   sensitive   = true
-  description = "Bearer token for the central ingest gateway. Null skips Secret creation. Never commit the value."
+  description = "Bearer token written to Secret ingest-auth on this workload cluster. Null skips the Secret. Required when require_ingest_token is true. Never commit the value."
+}
+
+variable "require_ingest_token" {
+  type        = bool
+  default     = false
+  description = "When true, apply fails unless ingest_token is set. The platform stack sets this for central_overlay=prod."
 }

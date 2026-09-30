@@ -23,6 +23,18 @@ locals {
     ],
     [for tenant in local.tob_tenants : tenant.org_id],
   )
+  # toc-api is Deployment/Service demo-app, already in the central inventory.
+  # Every other rendered workload name is an input to module.central.
+  toc_workload_names = [
+    for service in local.tenancy.business_lines.toc.services : service.compose_service
+    if service.compose_service != "demo-app"
+  ]
+  tob_workload_names = flatten([
+    for tenant in local.tob_tenants : [
+      for service in local.tenancy.business_lines.tob.services : "${service.name}-${tenant.id}"
+    ]
+  ])
+  generated_workload_names = concat(local.toc_workload_names, local.tob_workload_names)
 }
 
 resource "terraform_data" "tenancy_catalog" {
