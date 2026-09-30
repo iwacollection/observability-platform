@@ -43,3 +43,10 @@ variable "grafana_admin_password" {
   sensitive   = true
   description = "When set, Terraform creates the grafana-admin Secret. Leave null to create that Secret outside Terraform. Never commit the value."
 }
+
+variable "ingest_token" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "When set, Terraform writes Secret ingest-auth after the overlay apply. Leave null on the dev overlay, which already contains the local placeholder. Never commit the value."
+}

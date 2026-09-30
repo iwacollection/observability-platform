@@ -39,21 +39,22 @@ spec:
           args:
             - -target=all
             - -config.file=/etc/tempo/tempo.yaml
+            - -config.expand-env=true
+          env:
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
+            - name: INGEST_AUTHORIZATION
+              value: "Bearer $(INGEST_TOKEN)"
           ports:
-            - name: http
-              containerPort: 3200
-            - name: otlp-grpc
-              containerPort: 4317
-            - name: otlp-http
-              containerPort: 4318
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: http
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: http
+            - name: backend
+              containerPort: 13200
+            - name: backend-grpc
+              containerPort: 14317
+            - name: backend-otlp-http
+              containerPort: 14318
           resources:
             requests:
               cpu: 100m
@@ -73,6 +74,64 @@ spec:
               mountPath: /var/tempo
             - name: tmp
               mountPath: /tmp
+        - name: ingest-gateway
+          image: nginx:1.28.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/etc/ingest-gateway/entrypoint.sh"]
+          env:
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
+            - name: GATEWAY_MODE
+              value: tempo
+            - name: HTTP_LISTEN
+              value: "3200"
+            - name: HTTP_UPSTREAM
+              value: 127.0.0.1:13200
+            - name: GRPC_LISTEN
+              value: "4317"
+            - name: GRPC_UPSTREAM
+              value: 127.0.0.1:14317
+            - name: OTLP_HTTP_LISTEN
+              value: "4318"
+            - name: OTLP_HTTP_UPSTREAM
+              value: 127.0.0.1:14318
+          ports:
+            - name: http
+              containerPort: 3200
+            - name: otlp-grpc
+              containerPort: 4317
+            - name: otlp-http
+              containerPort: 4318
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: ingest-gateway
+              mountPath: /etc/ingest-gateway
+              readOnly: true
+            - name: nginx-tmp
+              mountPath: /tmp
       volumes:
         - name: config
           configMap:
@@ -81,6 +140,11 @@ spec:
           persistentVolumeClaim:
             claimName: tempo-data
         - name: tmp
+          emptyDir: {}
+        - name: ingest-gateway
+          configMap:
+            name: ingest-gateway-config
+        - name: nginx-tmp
           emptyDir: {}
 ---
 apiVersion: v1

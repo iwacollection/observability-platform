@@ -54,7 +54,7 @@ stub_status 不提供 5xx。Nginx 这一层用 USE：`nginx_up`、连接是否�
 
 `http.route` 只允许 `KNOWN_ROUTES` 里的路径，其余记成 `other`。`/healthz` 仍会导出，但 SLO 和 `HighErrorRate` 把它排除。
 
-Exemplar：进程设置 `OTEL_METRICS_EXEMPLAR_FILTER=trace_based`，`histogram.record` 发生在当前 span 内。Prometheus 启动参数有 `--enable-feature=exemplar-storage`。Grafana Prometheus 数据源把 exemplar 的 `trace_id` 指到 Tempo UID `tempo`。
+Exemplar：进程设置 `OTEL_METRICS_EXEMPLAR_FILTER=trace_based`，`histogram.record` 发生在当前 span 内。Prometheus 启动参数有 `--enable-feature=exemplar-storage`。uid `prometheus` 的 exemplar 打开 Tempo `tempo`（org `toc`）。`prometheus-tob-acme` 打开 `tempo-tob-acme`，`prometheus-tob-northwind` 打开 `tempo-tob-northwind`。对照表在 [tenancy.md](tenancy.md)。
 
 | 指标 | 类型 | 标签 | 来源 | 示例 PromQL | 告警 | 仪表盘 |
 | --- | --- | --- | --- | --- | --- | --- |

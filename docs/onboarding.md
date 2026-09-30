@@ -134,10 +134,14 @@ loki.write "default" {
 Loki 已打开多租户。推一条测试日志时要带 org，ToC 用 `toc`，ToB 用 `tob-acme` 或 `tob-northwind`。不要用用户 id 当 org：
 
 ```bash
-curl -sS -H 'Content-Type: application/json' -H 'X-Scope-OrgID: toc' \
+curl -sS -H 'Content-Type: application/json' \
+  -H 'X-Scope-OrgID: toc' \
+  -H 'Authorization: Bearer dev-ingest-token' \
   -d '{"streams":[{"stream":{"service_name":"toc-api","tenant":"consumer","business_line":"toc","cluster":"local"},"values":[["'$(date +%s%N)'","{\"msg\":\"hello\"}"]]}]}' \
   http://127.0.0.1:3100/loki/api/v1/push
 ```
+
+`dev-ingest-token` 是本地占位。生产换成 Secret `ingest-auth` 里的口令。
 
 应用日志平时不走这条 curl，而走 Collector。Collector 按 `config/tenancy.yaml` 的允许表选择 org。`service_name`、`tenant`、`business_line`、`cluster` 可以当标签。不要把用户 id 放进 `stream`。接入步骤在 [tenancy.md](tenancy.md)。
 

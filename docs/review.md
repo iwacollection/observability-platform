@@ -78,7 +78,7 @@ Remote write、Loki、Tempo、Pyroscope 都没有认证。Postgres 是 `trust`�
 
 - `grafana_admin_password` 是 sensitive 变量，默认 `null`。只有显式设置时，`modules/central` 才创建 Secret `grafana-admin`。`terraform.tfvars.example` 不写密码。
 - kubeconfig 只出现在变量里。`terraform.tfvars` 和 `*.tfstate` 被 gitignore。`backend.tf.example` 说明远端状态要加密，因为 state 可能含有 Grafana 密码。
-- 没有把 bearer token 写进 Alloy 或 Collector。当前导出仍是明文 HTTP（`tls.insecure: true`）。鉴权网关仍然是后续工作，不在这次提交里假装已经做完。
+- 写入路径前面有 nginx 网关。口令是 sensitive 变量 `ingest_token`，默认 `null`，apply 时写入 Secret `ingest-auth`。仓库里只有 example 和 dev 占位 `dev-ingest-token`，没有真实口令。导出仍是明文 HTTP（`tls.insecure: true`），没有 mTLS。
 
 ## 6. 标签基数
 
@@ -117,8 +117,18 @@ Remote write、Loki、Tempo、Pyroscope 都没有认证。Postgres 是 `trust`�
 - `scripts/render_tenancy.py` 从这份地图生成 Collector 的 `X-Scope-OrgID` 路由、Grafana 按 org 的数据源、`tenancy.yml` 规则、Compose 业务进程、Kubernetes 工作负载和 ToB 仪表盘。`make config-check` 会比对，防止手改生成物。
 - Loki `auth_enabled: true`，Tempo `multitenancy_enabled: true`。org 是 `toc`、`tob-acme`、`tob-northwind`、`platform`、`rejected`。不在允许表里的租户字符串变成常量 `rejected`，不会变成新的 org 或新的指标标签。
 - Prometheus 仍是标签隔离，没有假装接了 Mimir。记录规则和告警保留 `cluster`、`tenant`、`business_line`。`toc:http_requests:rate5m` 不会计入 ToB 序列。`promtool test rules` 覆盖了这一点，也覆盖了 `acme` 与 `northwind` 不会加成一条线。
-- Compose 在 `local` 上跑 ToC 两个服务和 ToB 租户 `acme`。`northwind` 在目录和清单里，副本数为 0。
+- Compose 和 dev overlay 都启动 ToC，以及 ToB 租户 `acme` 和 `northwind`。`tob-admin-northwind` 与 `tob-billing-northwind` 在 Compose 上分别是宿主机 8084 和 8085，dev overlay 副本数为 1。base 和 prod 仍是 0。
+- Grafana 不能在一个 Prometheus 数据源里按标签换 Tempo。uid `prometheus` 的 exemplar 打开 `tempo`（org `toc`）。`prometheus-tob-acme` 打开 `tempo-tob-acme`，`prometheus-tob-northwind` 打开 `tempo-tob-northwind`。ToB 带 exemplar 的面板用后面这两个 uid。
+- Remote write、Loki、Tempo、Pyroscope 前面有 nginx 网关，要求 `Authorization: Bearer`。口令来自 `INGEST_TOKEN` 或 Secret `ingest-auth`。本地占位 `dev-ingest-token` 只出现在 `.env.example` 和 dev overlay，prod 渲染结果里没有这个字符串。`/metrics` 和健康检查不带头，给探针用。
+- Pyroscope 2.3.1 打开 `multitenancy_enabled`，服务端读取 `X-Scope-OrgID`。SDK 用 `tenant_id` 发送。Collector 0.161.0 的 routing connector 没有 profiles，OTLP profile 固定进 org `rejected`。
+- 工作负载集群的 Collector 副本数是 2，两份共用同一份配置。Alloy 仍是 DaemonSet。
 - Terraform 读同一份 yaml，plan 时校验 org id。增加租户不是复制 Deployment。provider alias 仍然不能放进 `for_each`，文档继续这么写。
 - 说明在 `docs/tenancy.md`。
 
-还没有做的：中心进程仍是单副本本地盘；remote write、Loki、Tempo 前面没有鉴权网关；Pyroscope 只靠标签，不靠 org 头；Prometheus 没有换成 Mimir。这些都不要在 README 里写成已经完成。
+还没有做的，不要写成已经完成：
+
+- Prometheus、Loki、Tempo、Pyroscope 仍是单进程本地盘。再加一个副本会写两份互不相识的磁盘，不是 HA。下一步是共享对象存储（Loki scalable、Tempo 与 Pyroscope 的对象存储后端，指标侧是 Mimir），然后才能谈存储副本。
+- 工作负载 Collector 的两个副本各自做 tail sampling。一条 trace 的 span 打到不同副本时，采样决策不是全局的。这不是链路 HA。
+- OTLP profiles 在 collector 0.161 上不能按租户分头。
+- 组件之间没有 mTLS。prod 的 `ingest-auth` 只有在设置 `TF_VAR_ingest_token` 或套用 example Secret 之后才存在。
+- Prometheus 没有换成 Mimir。

@@ -55,6 +55,11 @@ spec:
                 configMapKeyRef:
                   name: observability-endpoints
                   key: PYROSCOPE_OTLP_ENDPOINT
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
           ports:
             - name: otlp-grpc
               containerPort: 4317

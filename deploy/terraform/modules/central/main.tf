@@ -15,6 +15,7 @@ resource "terraform_data" "stack" {
     repo_root    = local.repo_root
     overlay      = local.overlay
     checksum     = local.checksum
+    ingest_token = var.ingest_token
   }
 
   provisioner "local-exec" {
@@ -23,6 +24,7 @@ resource "terraform_data" "stack" {
       KUBECONFIG     = self.input.kubeconfig
       KUBE_CONTEXT   = self.input.kube_context
       KUSTOMIZE_PATH = self.input.overlay
+      INGEST_TOKEN   = self.input.ingest_token == null ? "" : self.input.ingest_token
     }
   }
 

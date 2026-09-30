@@ -26,14 +26,26 @@ extensions:
     endpoint: 0.0.0.0:13133
   zpages:
     endpoint: 0.0.0.0:55679
+  # Raw token. The extension sends "Authorization: Bearer <token>".
+  # No default: a missing INGEST_TOKEN fails closed. Compose supplies the
+  # documented local placeholder through the environment. Kubernetes reads
+  # Secret ingest-auth. This file is mounted into prod, so it must not
+  # contain that placeholder.
+  bearertokenauth:
+    scheme: Bearer
+    token: ${env:INGEST_TOKEN}
 
 receivers:
   otlp:
     protocols:
       grpc:
         endpoint: 0.0.0.0:4317
+        auth:
+          authenticator: bearertokenauth
       http:
         endpoint: 0.0.0.0:4318
+        auth:
+          authenticator: bearertokenauth
 
 processors:
   # memory_limiter must be the first processor in every pipeline that uses it.
@@ -221,6 +233,8 @@ connectors:
 exporters:
   prometheusremotewrite:
     endpoint: ${env:PROMETHEUS_REMOTE_WRITE_URL:-http://prometheus:9090/api/v1/write}
+    auth:
+      authenticator: bearertokenauth
     external_labels:
       cluster: ${env:CLUSTER_NAME:-local}
     resource_to_telemetry_conversion:
@@ -232,60 +246,86 @@ exporters:
 # TENANCY:exporters
   otlphttp/loki_toc:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: toc
     tls:
       insecure: true
   otlp/tempo_toc:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: toc
     tls:
       insecure: true
   otlphttp/loki_acme:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: tob-acme
     tls:
       insecure: true
   otlp/tempo_acme:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: tob-acme
     tls:
       insecure: true
   otlphttp/loki_northwind:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: tob-northwind
     tls:
       insecure: true
   otlp/tempo_northwind:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: tob-northwind
     tls:
       insecure: true
   otlphttp/loki_rejected:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: rejected
     tls:
       insecure: true
   otlp/tempo_rejected:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
+    auth:
+      authenticator: bearertokenauth
     headers:
       X-Scope-OrgID: rejected
     tls:
       insecure: true
 # TENANCY:exporters:end
+  # Pyroscope 2.3.1 honors X-Scope-OrgID when multitenancy_enabled is true.
+  # This exporter cannot vary that header: routingconnector v0.161.0 implements
+  # traces, metrics, and logs only (no WithProfilesToProfiles). A static org
+  # here would mix every OTLP profile into one tenant, so this path is the
+  # quarantine org. The HTTP SDK sets the real org via tenant_id. See
+  # docs/tenancy.md.
   otlp/pyroscope:
     endpoint: ${env:PYROSCOPE_OTLP_ENDPOINT:-pyroscope:4040}
+    auth:
+      authenticator: bearertokenauth
+    headers:
+      X-Scope-OrgID: rejected
     tls:
       insecure: true
 
 service:
-  extensions: [health_check, zpages]
+  extensions: [health_check, zpages, bearertokenauth]
   telemetry:
     logs:
       level: info
@@ -312,6 +352,8 @@ service:
       exporters: [routing/traces]
     # batch, attributes, filter, and tail_sampling do not implement profiles
     # in collector 0.161. Keep this pipeline on memory_limiter only.
+    # routingconnector v0.161.0 also has no profiles router, so the exporter
+    # below cannot pick X-Scope-OrgID per tenant. It uses org rejected.
     profiles:
       receivers: [otlp]
       processors: [memory_limiter]

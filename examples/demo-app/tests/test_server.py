@@ -25,7 +25,7 @@ from demo_app.server import (  # noqa: E402
     make_server,
     route_label,
 )
-from demo_app.telemetry import JsonFormatter, grpc_target  # noqa: E402
+from demo_app.telemetry import JsonFormatter, grpc_target, otlp_headers  # noqa: E402
 from opentelemetry import trace  # noqa: E402
 from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
 
@@ -203,11 +203,24 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(resolve("toc", "acme", "checkout")["org_id"], "toc")
         self.assertEqual(resolve("tob", "acme", "admin")["org_id"], "tob-acme")
         self.assertEqual(resolve("tob", "northwind", "billing")["tenant"], "northwind")
+        self.assertEqual(resolve("tob", "northwind", "billing")["org_id"], "tob-northwind")
         rejected = resolve("tob", "user-42", "billing")
         self.assertEqual(rejected["tenant"], "rejected")
         self.assertEqual(rejected["org_id"], "rejected")
         self.assertNotIn("user-42", rejected.values())
         self.assertEqual(resolve("nope", "acme", "admin")["business_line"], "rejected")
+
+    def test_otlp_headers_follow_the_ingest_token(self) -> None:
+        previous = os.environ.pop("INGEST_TOKEN", None)
+        try:
+            self.assertEqual(otlp_headers(), {})
+            os.environ["INGEST_TOKEN"] = "dev-ingest-token"
+            self.assertEqual(otlp_headers(), {"authorization": "Bearer dev-ingest-token"})
+        finally:
+            if previous is None:
+                os.environ.pop("INGEST_TOKEN", None)
+            else:
+                os.environ["INGEST_TOKEN"] = previous
 
     def test_tob_routes_do_not_take_raw_ids(self) -> None:
         import demo_app.server as server

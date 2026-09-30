@@ -44,6 +44,17 @@ def load_tenancy() -> dict:
         raise SystemExit("duplicate ToB tenant id")
     if "acme" not in ids or "northwind" not in ids:
         raise SystemExit("example allow-list must keep acme and northwind")
+    for tenant in tob["tenants"]:
+        if tenant["id"] not in {"acme", "northwind"}:
+            continue
+        if not tenant.get("compose"):
+            raise SystemExit(f"{tenant['id']} must run in local Compose (compose: true)")
+        dev_replicas = int(tenant.get("dev_replicas", tenant.get("replicas", 0)))
+        if dev_replicas < 1:
+            raise SystemExit(f"{tenant['id']} must run in the dev overlay (dev_replicas or replicas >= 1)")
+        for service in tob["services"]:
+            if service["name"] not in tenant.get("host_ports", {}):
+                raise SystemExit(f"{tenant['id']} missing host port for {service['name']}")
     return data
 
 
@@ -119,12 +130,16 @@ def exporters_yaml(data: dict) -> str:
                 [
                     f"  otlphttp/loki_{suffix}:",
                     "    endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}",
+                    "    auth:",
+                    "      authenticator: bearertokenauth",
                     "    headers:",
                     f"      X-Scope-OrgID: {org}",
                     "    tls:",
                     "      insecure: true",
                     f"  otlp/tempo_{suffix}:",
                     "    endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}",
+                    "    auth:",
+                    "      authenticator: bearertokenauth",
                     "    headers:",
                     f"      X-Scope-OrgID: {org}",
                     "    tls:",
@@ -194,7 +209,22 @@ def render_collector(data: dict, check: bool) -> None:
         COLLECTOR_PATH.write_text(text)
 
 
-def datasource(name: str, uid: str, kind: str, url: str, org: str, extra: dict | None = None) -> dict:
+# Grafana provisioning expands this. The value is the whole header, so the
+# env var must already include the "Bearer " prefix. See INGEST_AUTHORIZATION.
+AUTH_HEADER_ENV = "$__env{INGEST_AUTHORIZATION}"
+
+
+def datasource(name: str, uid: str, kind: str, url: str, org: str | None, extra: dict | None = None) -> dict:
+    json_data: dict = {}
+    secure: dict = {}
+    if org:
+        json_data["httpHeaderName1"] = "X-Scope-OrgID"
+        secure["httpHeaderValue1"] = org
+        json_data["httpHeaderName2"] = "Authorization"
+        secure["httpHeaderValue2"] = AUTH_HEADER_ENV
+    else:
+        json_data["httpHeaderName1"] = "Authorization"
+        secure["httpHeaderValue1"] = AUTH_HEADER_ENV
     payload = {
         "name": name,
         "uid": uid,
@@ -202,12 +232,29 @@ def datasource(name: str, uid: str, kind: str, url: str, org: str, extra: dict |
         "access": "proxy",
         "url": url,
         "editable": False,
-        "jsonData": {"httpHeaderName1": "X-Scope-OrgID"},
-        "secureJsonData": {"httpHeaderValue1": org},
+        "jsonData": json_data,
+        "secureJsonData": secure,
     }
     if extra:
         payload["jsonData"].update(extra)
     return payload
+
+
+def prometheus_for_tempo(name: str, uid: str, tempo_uid: str) -> dict:
+    return datasource(
+        name,
+        uid,
+        "prometheus",
+        "http://prometheus:9090",
+        None,
+        {
+            "timeInterval": "15s",
+            "httpMethod": "POST",
+            "exemplarTraceIdDestinations": [
+                {"name": "trace_id", "datasourceUid": tempo_uid},
+            ],
+        },
+    )
 
 
 def render_datasources(data: dict, check: bool) -> None:
@@ -238,16 +285,43 @@ def render_datasources(data: dict, check: bool) -> None:
             "tempo",
             "http://tempo:3200",
             data["rejected_org_id"],
-            {"httpMethod": "GET"},
+            {
+                "httpMethod": "GET",
+                "tracesToProfiles": {"datasourceUid": "pyroscope-rejected"},
+                "tracesToMetrics": {"datasourceUid": "prometheus"},
+                "serviceMap": {"datasourceUid": "prometheus"},
+                "nodeGraph": {"enabled": True},
+            },
+        )
+    )
+    items.append(
+        datasource(
+            "Pyroscope platform",
+            "pyroscope-platform",
+            "grafana-pyroscope-datasource",
+            "http://pyroscope:4040",
+            data["platform_org_id"],
+        )
+    )
+    items.append(
+        datasource(
+            "Pyroscope rejected",
+            "pyroscope-rejected",
+            "grafana-pyroscope-datasource",
+            "http://pyroscope:4040",
+            data["rejected_org_id"],
         )
     )
     for tenant in data["business_lines"]["tob"]["tenants"]:
         org = tenant["org_id"]
+        tempo_uid = f"tempo-{org}"
+        prom_uid = f"prometheus-{org}"
+        pyro_uid = f"pyroscope-{org}"
         items.append(datasource(f"Loki {org}", f"loki-{org}", "loki", "http://loki:3100", org))
         items.append(
             datasource(
                 f"Tempo {org}",
-                f"tempo-{org}",
+                tempo_uid,
                 "tempo",
                 "http://tempo:3200",
                 org,
@@ -258,18 +332,33 @@ def render_datasources(data: dict, check: bool) -> None:
                         "filterByTraceID": True,
                         "filterBySpanID": False,
                     },
-                    "tracesToMetrics": {"datasourceUid": "prometheus"},
-                    "serviceMap": {"datasourceUid": "prometheus"},
+                    "tracesToProfiles": {"datasourceUid": pyro_uid},
+                    "tracesToMetrics": {"datasourceUid": prom_uid},
+                    "serviceMap": {"datasourceUid": prom_uid},
                     "nodeGraph": {"enabled": True},
                 },
             )
         )
+        items.append(
+            datasource(
+                f"Pyroscope {org}",
+                pyro_uid,
+                "grafana-pyroscope-datasource",
+                "http://pyroscope:4040",
+                org,
+            )
+        )
+        # Same Prometheus URL as uid prometheus. The exemplar destination is
+        # this tenant's Tempo datasource, not the ToC uid "tempo".
+        items.append(prometheus_for_tempo(f"Prometheus {org}", prom_uid, tempo_uid))
     body = yaml.safe_dump({"apiVersion": 1, "datasources": items}, sort_keys=False)
     header = (
         "# Generated from config/tenancy.yaml by scripts/render_tenancy.py.\n"
-        "# Header values are org ids from the allow-list, not credentials.\n"
-        "# Grafana stores them under secureJsonData because that is how a\n"
-        "# datasource sends X-Scope-OrgID. Do not put passwords in this file.\n"
+        "# X-Scope-OrgID values are org ids from the allow-list, not credentials.\n"
+        "# Authorization is Bearer $__env{INGEST_AUTHORIZATION}. Grafana expands\n"
+        "# that at provisioning time. Do not put the token in this file.\n"
+        "# prometheus-tob-<id> is the same Prometheus as uid prometheus. Its\n"
+        "# exemplarTraceIdDestinations point at tempo-tob-<id>, not uid tempo.\n"
     )
     text = header + body
     write_or_check(path, text, check)
@@ -419,6 +508,7 @@ def compose_service(name: str, service_name: str, role: str, line: str, tenant: 
       OTEL_SERVICE_NAME: {service_name}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      INGEST_TOKEN: ${{INGEST_TOKEN:-dev-ingest-token}}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
       BUSINESS_LINE: {line}
@@ -523,6 +613,11 @@ spec:
               value: http://otel-collector:4317
             - name: PYROSCOPE_SERVER_ADDRESS
               value: http://pyroscope:4040
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
             - name: CLUSTER_NAME
@@ -587,13 +682,20 @@ spec:
 """
 
 
+def dev_replica_count(tenant: dict) -> int:
+    if "dev_replicas" in tenant:
+        return int(tenant["dev_replicas"])
+    return int(tenant.get("replicas", 0))
+
+
 def render_workloads(data: dict, check: bool) -> None:
     path = ROOT / "deploy" / "kubernetes" / "base" / "business-workloads.yaml"
     header = "\n".join(
         [
             "# Generated from config/tenancy.yaml by scripts/render_tenancy.py.",
             "# toc-api is deploy/kubernetes/base/demo-app.yaml (service demo-app).",
-            "# replicas 0 keeps a tenant in the catalog without scheduling pods.",
+            "# replicas is the base and prod count. The dev overlay raises a",
+            "# tenant when tenancy.yaml sets dev_replicas.",
         ]
     )
     docs = []
@@ -636,6 +738,35 @@ def render_workloads(data: dict, check: bool) -> None:
         text += "\n"
     write_or_check(path, text, check)
     render_prod_patches(prod_patches, check)
+    render_dev_replica_patches(data, check)
+
+
+def render_dev_replica_patches(data: dict, check: bool) -> None:
+    overlay = ROOT / "deploy" / "kubernetes" / "overlays" / "dev"
+    names = []
+    for tenant in data["business_lines"]["tob"]["tenants"]:
+        if "dev_replicas" not in tenant:
+            continue
+        count = dev_replica_count(tenant)
+        for service in data["business_lines"]["tob"]["services"]:
+            deploy_name = f"{service['name']}-{tenant['id']}"
+            names.append(deploy_name)
+            body = f"""apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {deploy_name}
+spec:
+  replicas: {count}
+"""
+            write_or_check(overlay / f"replicas-{deploy_name}.yaml", body, check)
+    kustom = overlay / "kustomization.yaml"
+    original = kustom.read_text()
+    block = "\n".join(f"  - path: replicas-{name}.yaml" for name in names)
+    updated = splice(original, "patches", block + "\n")
+    if check and updated != original:
+        raise SystemExit("dev kustomization tenancy patches are stale; run make render-tenancy")
+    if not check:
+        kustom.write_text(updated)
 
 
 def render_prod_patches(items: list[tuple[str, str]], check: bool) -> None:
@@ -667,20 +798,21 @@ spec:
         kustom.write_text(updated)
 
 
-def panel(pid: int, title: str, expr: str, y: int, x: int = 0, w: int = 12, ds_uid: str = "prometheus", ds_type: str = "prometheus") -> dict:
+def panel(pid: int, title: str, expr: str, y: int, x: int = 0, w: int = 12, ds_uid: str = "prometheus", ds_type: str = "prometheus", exemplar: bool = False) -> dict:
+    target = {
+        "refId": "A",
+        "datasource": {"type": ds_type, "uid": ds_uid},
+        "expr": expr,
+    }
+    if exemplar:
+        target["exemplar"] = True
     return {
         "id": pid,
         "type": "timeseries" if ds_type == "prometheus" else "logs",
         "title": title,
         "gridPos": {"h": 8, "w": w, "x": x, "y": y},
         "datasource": {"type": ds_type, "uid": ds_uid},
-        "targets": [
-            {
-                "refId": "A",
-                "datasource": {"type": ds_type, "uid": ds_uid},
-                "expr": expr,
-            }
-        ],
+        "targets": [target],
     }
 
 
@@ -713,6 +845,14 @@ def render_dashboards(data: dict, check: bool) -> None:
         panel(6, "业务：ToC 结账延迟 p95", 'business:checkout_duration:p95_5m{cluster="$cluster",business_line="toc",tenant="consumer"}', 16, 12),
         panel(7, "平台：Collector 队列", 'platform:collector_queue_utilization:ratio{cluster="$cluster"}', 24),
         panel(8, "日志：ToC", '{business_line="toc", tenant="consumer"}', 24, 12, ds_uid="loki", ds_type="loki"),
+        panel(
+            9,
+            "Exemplar：ToC 延迟 → tempo",
+            'http_server_request_duration_seconds_bucket{cluster="$cluster",business_line="toc",tenant="consumer",http_route!="/healthz"}',
+            32,
+            ds_uid="prometheus",
+            exemplar=True,
+        ),
     ]
     write_or_check(
         directory / "toc-line.json",
@@ -749,6 +889,19 @@ def render_dashboards(data: dict, check: bool) -> None:
         tob_panels.append(
             panel(
                 pid,
+                f"Exemplar：{tenant['id']} 延迟 → tempo-{org}",
+                'http_server_request_duration_seconds_bucket{cluster="$cluster",business_line="tob",tenant="%s",http_route!="/healthz"}'
+                % tenant["id"],
+                y,
+                ds_uid=f"prometheus-{org}",
+                exemplar=True,
+            )
+        )
+        pid += 1
+        y += 8
+        tob_panels.append(
+            panel(
+                pid,
                 f"日志：{org}",
                 '{business_line="tob", tenant="%s"}' % tenant["id"],
                 y,
@@ -764,6 +917,7 @@ def render_dashboards(data: dict, check: bool) -> None:
                 'sum by (service, span_name) (rate(traces_spanmetrics_calls_total{cluster="$cluster",tenant="%s",business_line="tob"}[5m]))' % tenant["id"],
                 y,
                 12,
+                ds_uid=f"prometheus-{org}",
             )
         )
         pid += 1

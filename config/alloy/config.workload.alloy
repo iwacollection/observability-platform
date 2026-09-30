@@ -146,6 +146,11 @@ prometheus.scrape "kube_state" {
 prometheus.remote_write "prometheus" {
 	endpoint {
 		url = sys.env("PROMETHEUS_REMOTE_WRITE_URL")
+
+		authorization {
+			type        = "Bearer"
+			credentials = sys.env("INGEST_TOKEN")
+		}
 	}
 
 	external_labels = {
@@ -230,6 +235,11 @@ loki.source.kubernetes "pod_logs" {
 loki.write "default" {
 	endpoint {
 		url = sys.env("LOKI_PUSH_URL")
+
+		authorization {
+			type        = "Bearer"
+			credentials = sys.env("INGEST_TOKEN")
+		}
 	}
 
 	external_labels = {
@@ -256,6 +266,10 @@ otelcol.receiver.otlp "apps" {
 otelcol.exporter.otlp "gateway" {
 	client {
 		endpoint = "otel-collector:4317"
+
+		headers = {
+			"authorization" = "Bearer " + sys.env("INGEST_TOKEN"),
+		}
 
 		tls {
 			insecure = true

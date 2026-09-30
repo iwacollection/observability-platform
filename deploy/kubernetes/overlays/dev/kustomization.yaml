@@ -2,6 +2,11 @@ apiVersion: kustomize.config.k8s.io/v1beta1
 kind: Kustomization
 resources:
   - ../../base
+  - ingest-auth.yaml
 patches:
   - path: storage.yaml
   - path: demo-env.yaml
+# TENANCY:patches
+  - path: replicas-tob-admin-northwind.yaml
+  - path: replicas-tob-billing-northwind.yaml
+# TENANCY:patches:end

@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Apply or delete a kustomize tree with an explicit kubeconfig.
 # Workload agents also refresh the observability-endpoints ConfigMap from
-# the environment. Tokens are not read from this script.
+# the environment. INGEST_TOKEN, when set, is written to Secret ingest-auth
+# and is not stored in this file.
 set -euo pipefail
 
 action="${1:?usage: kubectl-apply.sh apply|delete}"
@@ -52,7 +53,40 @@ if [[ -n "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
     --dry-run=client -o yaml | "${kc[@]}" apply -f -
 fi
 
+if [[ -n "${WORKLOAD_COLLECTOR_REPLICAS:-}" ]]; then
+  python3 - "$manifest" "$WORKLOAD_COLLECTOR_REPLICAS" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+path, raw = sys.argv[1], sys.argv[2]
+count = int(raw)
+if count < 2:
+    raise SystemExit("WORKLOAD_COLLECTOR_REPLICAS must be >= 2")
+text = Path(path).read_text()
+docs = text.split("---\n")
+found = False
+out = []
+for doc in docs:
+    if re.search(r"^kind: Deployment\n", doc, re.M) and re.search(r"^  name: otel-collector\n", doc, re.M):
+        doc, n = re.subn(r"^  replicas: \d+\n", f"  replicas: {count}\n", doc, count=1, flags=re.M)
+        if n != 1:
+            raise SystemExit("could not set otel-collector replicas")
+        found = True
+    out.append(doc)
+if not found:
+    raise SystemExit("workload manifest has no otel-collector Deployment")
+Path(path).write_text("---\n".join(out))
+PY
+fi
+
 "${kc[@]}" apply -f "$manifest"
+
+if [[ -n "${INGEST_TOKEN:-}" ]]; then
+  "${kc[@]}" -n observability create secret generic ingest-auth \
+    --from-literal=token="$INGEST_TOKEN" \
+    --dry-run=client -o yaml | "${kc[@]}" apply -f -
+fi
 
 if [[ -n "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
   "${kc[@]}" -n observability rollout restart daemonset/alloy deployment/otel-collector

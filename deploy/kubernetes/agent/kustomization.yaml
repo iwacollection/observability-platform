@@ -19,6 +19,13 @@ labels:
   - pairs:
       app.kubernetes.io/part-of: observability-platform
     includeSelectors: false
+# Stateless collector. Two replicas share this ConfigMap. Alloy stays a
+# DaemonSet: it mounts the node and keeps only NODE_NAME, so a second pod
+# on the same node would scrape twice. Central Prometheus/Loki/Tempo/
+# Pyroscope are not scaled here.
+replicas:
+  - name: otel-collector
+    count: 2
 configMapGenerator:
   - name: otel-collector-config
     files:

@@ -1,6 +1,6 @@
 # 多集群
 
-中心只有一套可观测栈。工作负载集群各自跑采集 agent，把指标、日志、链路和 Profile 送到这套栈，并带上标签 `cluster`。同一条管道上还有业务线 `business_line` 和租户 `tenant`：ToC 是合成租户 `consumer`，ToB 是允许表里的企业客户。日志和链路用 `X-Scope-OrgID` 分 org，指标在 Prometheus 里靠标签分开。中心进程仍是单副本、本地盘。这份文档不把 Prometheus 拆成 Mimir，也不打开对象存储。租户模型、接入步骤和「某个租户没有数」在 [tenancy.md](tenancy.md)。
+中心只有一套可观测栈。工作负载集群各自跑采集 agent，把指标、日志、链路和 Profile 送到这套栈，并带上标签 `cluster`。同一条管道上还有业务线 `business_line` 和租户 `tenant`：ToC 是合成租户 `consumer`，ToB 是允许表里的企业客户。日志、链路和 Pyroscope 用 `X-Scope-OrgID` 分 org，指标在 Prometheus 里靠标签分开。写入还要带 Bearer。中心存储仍是单副本、本地盘；工作负载 Collector 是两个无状态副本。这份文档不把 Prometheus 拆成 Mimir，也不打开对象存储。租户模型、接入步骤和「某个租户没有数」在 [tenancy.md](tenancy.md)。
 
 ## 拓扑
 

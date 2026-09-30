@@ -71,8 +71,8 @@ flowchart LR
 
 ## 不在这套单机拓扑里的东西
 
-- 没有副本和没有对象存储。Loki、Tempo、Pyroscope、Prometheus 都是单进程加本地盘。
-- 后端之间没有 mTLS，remote write 也没有鉴权。
+- Prometheus、Loki、Tempo、Pyroscope 仍是单进程加本地盘，没有对象存储。工作负载集群的 Collector 是两个无状态副本，共用一份配置；这不包含存储 HA。
+- 写入路径要求 Bearer。组件之间没有 mTLS。
 - Collector 的 profiles 管道在 0.161 里仍是 alpha，启动参数带 `service.profilesSupport`。
 - Demo 的 profile 主路径是 Pyroscope SDK 的 HTTP push。OTLP profiles 管道留给已经能导出 OTLP profile 的运行时。
 

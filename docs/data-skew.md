@@ -106,15 +106,19 @@ topk(5, sum by (business_line, tenant, cluster, service_name) (rate(business_pay
 topk(5, sum by (tenant, cluster, service_name) (rate(business_invoices_total{business_line="tob"}[5m])))
 ```
 
-一个 `service_name` 占满 remote write 队列时，`CollectorExporterQueueNearFull` 先响，其他服务的点会跟着延迟。缓解是把那个服务的无用标签删掉（通常就能降一个数量级），而不是先加 Collector 副本。这套拓扑是单副本，加副本不在这份配置的范围内。
+一个 `service_name` 占满 remote write 队列时，`CollectorExporterQueueNearFull` 先响，其他服务的点会跟着延迟。缓解是把那个服务的无用标签删掉（通常就能降一个数量级）。工作负载 Collector 已经是两个无状态副本，但它们各自做 tail sampling，也写同一套中心单进程存储。加存储副本不在这份本地盘配置的范围内。
 
 同一个 Loki org 里，`{service_name="某个吵的服务"}` 的行数可以用对应的 Grafana 数据源，或：
 
 ```bash
-curl -sG -H 'X-Scope-OrgID: toc' \
+curl -sG \
+  -H 'X-Scope-OrgID: toc' \
+  -H 'Authorization: Bearer dev-ingest-token' \
   'http://127.0.0.1:3100/loki/api/v1/query' \
   --data-urlencode 'query=sum by (service_name, cluster) (count_over_time({business_line="toc"}[5m]))'
 ```
+
+`dev-ingest-token` 只用于本地。生产换成 Secret 里的口令。
 
 换 org 时改头，不要改成一个用户 id。细节在 [tenancy.md](tenancy.md)。
 

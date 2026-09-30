@@ -21,11 +21,13 @@
 | --- | --- | --- | --- |
 | `business_line` | 指标、日志、链路、Profile 标签 | `toc`、`tob` | 业务线。规则和仪表盘用它把两条线切开 |
 | `tenant` | 同上 | `consumer`、`acme`、`northwind` | 业务租户。ToB 聚合必须带着它 |
-| `org_id` / `X-Scope-OrgID` | Loki、Tempo 的请求头 | `toc`、`tob-acme`、`tob-northwind`、`platform`、`rejected` | 日志和链路的后端隔离。Grafana 每个 org 一个数据源 |
+| `org_id` / `X-Scope-OrgID` | Loki、Tempo、Pyroscope 的请求头 | `toc`、`tob-acme`、`tob-northwind`、`platform`、`rejected` | 日志、链路和 Profile 的后端隔离。Grafana 每个 org 一个数据源 |
 
 Prometheus 仍然是一套 TSDB，靠标签隔离。没有在这个钉死的单二进制上再挂一套 Mimir。Mimir 如果要加，必须是 `config-check` 能校验的真实配置，而不是一段打算。
 
-Pyroscope 2.3.1 配合 `pyroscope-io` 1.2.4 的 HTTP 推送没有租户头。Profile 用标签 `cluster`、`tenant`、`business_line` 分开。不要把它说成已经按 org 隔离。
+Pyroscope `grafana/pyroscope:2.3.1` 在 `multitenancy_enabled: true` 时读取 `X-Scope-OrgID`。这是对着该标签源码里的 `cmd/pyroscope/pyroscope.yaml` 核对过的：开关为 false 时头被忽略，全部记成 `anonymous`。`config/pyroscope/config.yaml` 打开了这个开关。Grafana 数据源和 demo 的 Pyroscope SDK（`pyroscope-io` 1.2.4 的 `tenant_id`）都发送这个头，同时仍带标签 `cluster`、`tenant`、`business_line`。进程自己的 self-profiling 写 `tenant_id: platform`，因为它推到本进程，不经过网关，多租户打开后必须带头。
+
+Collector `otel/opentelemetry-collector-contrib:0.161.0` 的 `routingconnector` 没有 profiles 路由。该版本 `factory.go` 只注册 `WithTracesToTraces`、`WithMetricsToMetrics`、`WithLogsToLogs`，没有 `WithProfilesToProfiles`。因此 OTLP profiles 管道不能按租户拆 exporter。静态 exporter `otlp/pyroscope` 把 `X-Scope-OrgID` 固定成 `rejected`，避免把所有 OTLP profile 混进 `toc` 或某个 ToB org。按租户隔离的 Profile 走 HTTP SDK 的 `tenant_id`，不走这条 OTLP 管道。
 
 禁止进入指标标签的东西：
 
@@ -44,7 +46,7 @@ ToC 忽略调用方传来的任何租户。`BUSINESS_LINE=toc` 时标签永远�
 | 指标 | 应用资源属性，Collector `resource/cluster` 与 `transform/tenancy`，再经 remote write 变成标签 | Prometheus 标签。记录规则 `sum by (cluster, tenant, business_line, service_name)` |
 | 应用日志 | 同上，然后 routing connector 按 `org_id` 选择 exporter | Loki `auth_enabled: true`，头 `X-Scope-OrgID` |
 | 链路 | 同上 | Tempo `multitenancy_enabled: true`，同一个头。span metrics 维度含 `cluster`、`tenant`、`business_line` |
-| Profile | Pyroscope SDK 的 tag，键就是这几个名字 | 标签。服务端仍是单租户进程 |
+| Profile | Pyroscope SDK 的 tag，以及 `tenant_id` 写出的 `X-Scope-OrgID` | 服务端 `multitenancy_enabled: true`。OTLP 管道不能按租户选头，见上一节 |
 | 节点 / Pod 日志 | Alloy 只接受允许表里的 org。对不上的流进 `platform` | Loki org `platform`。Pod 标签 `observability.platform/org-id` 必须是 `toc`、`tob-acme`、`tob-northwind` 或 `platform` |
 
 Alertmanager 按 `alertname`、`cluster`、`business_line`、`tenant`、`service_name` 分组。`acme` 的 critical 不会抑制 `northwind` 的 warning，ToC 也不会抑制 ToB。
@@ -59,8 +61,10 @@ Alertmanager 按 `alertname`、`cluster`、`business_line`、`tenant`、`service
 | `toc-checkout` | ToC | `consumer` | checkout | 8081 | `toc-checkout` |
 | `tob-admin-acme` | ToB | `acme` | admin | 8082 | `tob-admin` |
 | `tob-billing-acme` | ToB | `acme` | billing | 8083 | `tob-billing` |
+| `tob-admin-northwind` | ToB | `northwind` | admin | 8084 | `tob-admin` |
+| `tob-billing-northwind` | ToB | `northwind` | billing | 8085 | `tob-billing` |
 
-`northwind` 在允许表、Collector 路由、Grafana 数据源和 Kubernetes 清单里，副本数是 0，Compose 不启动它。`:8080` 仍是原来的 demo 路由（`/api/work`、`/api/orders`、`/api/checkout`、`/api/error`），服务名改成了 `toc-api`。
+`acme` 和 `northwind` 都在本地 Compose 以及 dev overlay 里启动。`northwind` 的两个 Deployment 在 base 和 prod 的副本数是 0，dev overlay 的 patch 把它们改成 1。`:8080` 仍是原来的 demo 路由（`/api/work`、`/api/orders`、`/api/checkout`、`/api/error`），服务名改成了 `toc-api`。
 
 ToB 路由：
 
@@ -108,7 +112,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
     tob-billing: 8087
 ```
 
-`compose: true` 才会出现在本地 Compose。`replicas` 是中心集群里的副本数，0 表示清单在、Pod 不起。
+`compose: true` 才会出现在本地 Compose。`replicas` 是 base 和 prod 的副本数。`dev_replicas` 只改 dev overlay；省略它就沿用 `replicas`。`acme` 两边都是 1。`northwind` 的 `replicas` 是 0、`dev_replicas` 是 1，所以本地和 dev 会起来，prod 保持 0。
 
 2. 同时把 `examples/demo-app/src/demo_app/identity.py` 的 `TOB_TENANTS` 改成同一张表。两处不一致时 `make render-tenancy` 和 `config-check` 会失败。应用镜像不挂 yaml，所以进程内要有一份对照；Collector 仍是最后一道门。
 
@@ -118,9 +122,9 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 - Grafana 数据源 `loki-tob-<id>`、`tempo-tob-<id>`
 - `config/prometheus/rules/tenancy.yml` 里的 `tenant=~` 允许表
 - Alloy 里的 org 正则（`config.k8s.alloy` 与 `config.workload.alloy`，检查脚本会比对）
-- `deploy/kubernetes/base/business-workloads.yaml` 和 prod overlay 的环境补丁
+- `deploy/kubernetes/base/business-workloads.yaml`、prod overlay 的环境补丁，以及 dev overlay 里 `dev_replicas` 对应的副本 patch
 - `deploy/docker-compose/businesses.yml`（仅 `compose: true`）
-- 仪表盘 `tob-line.json` 上该 org 的日志面板
+- 仪表盘 `tob-line.json` 上该 org 的日志面板，以及指向 `tempo-tob-<id>` 的 exemplar 面板
 
 4. 业务进程：
 
@@ -178,9 +182,43 @@ count by (cluster, business_line, tenant, service_name) (
 有 `rejected` 说明允许表没接住。完全没有这个 `service_name` 说明 OTLP 没到 Collector，或 `CLUSTER_NAME` 为空。
 
 4. 日志要选对数据源。`loki` 这个 uid 固定查 org `toc`。`acme` 的日志在 `loki-tob-acme`。在 toc 数据源里查 `{tenant="acme"}` 会是空的，这不是采集故障。
-5. 链路同样：`tempo` 是 org `toc`，`tempo-tob-acme` 才是 acme。Prometheus 指标上的 exemplar 默认跳到 uid `tempo`，所以 ToB 的 trace 跳转要在 ToB 仪表盘上用对应数据源，不能指望这一条默认链接。
+5. 链路同样：`tempo` 是 org `toc`，`tempo-tob-acme` 才是 acme，`tempo-tob-northwind` 才是 northwind。Exemplar 的对应关系在下一节，不要用 uid `prometheus` 去打开 ToB 的 trace。
 6. Pod stdout 走 Alloy。看 Pod 标签 `observability.platform/org-id` 是否等于 `tob-acme` 这种 org id，而不是裸的 `acme`。对不上时日志在 org `platform`（数据源 `loki-platform`），指标仍可能在正确的租户里，因为指标不走 Alloy 的租户头。
 7. Grafana 变量如果停在 `cluster=local`，`prod-a` 的线不会出现。ToB 仪表盘的 `tenant` 是单选，没有 All。选了 `northwind` 就看不到 `acme`。
+
+## Exemplar 打开哪个 Tempo
+
+Grafana 的 `exemplarTraceIdDestinations` 不能按标签选择数据源。同一个 Prometheus 数据源只能指向一个 Tempo uid。ToB 序列因此不用 uid `prometheus`：那个数据源的 exemplar 打开 `tempo`，也就是 org `toc`。
+
+三份数据源查的是同一套 `http://prometheus:9090`，差别只在 exemplar 目标：
+
+| Prometheus uid | exemplar 打开的 Tempo uid | Tempo org |
+| --- | --- | --- |
+| `prometheus` | `tempo` | `toc` |
+| `prometheus-tob-acme` | `tempo-tob-acme` | `tob-acme` |
+| `prometheus-tob-northwind` | `tempo-tob-northwind` | `tob-northwind` |
+
+`toc-line.json` 上带 exemplar 的面板绑定 `prometheus`。`tob-line.json` 上带 `exemplar: true` 的面板绑定 `prometheus-tob-acme` 或 `prometheus-tob-northwind`。共享的 counter 面板仍可以用 uid `prometheus` 加 `$tenant` 过滤。`histogram_quantile` 会丢掉 exemplar，不能拿它做跳转。
+
+## 写入鉴权
+
+Remote write、Loki push、Tempo OTLP、Pyroscope ingest 前面是同一套 nginx 网关，镜像是已经钉住的 `nginx:1.28.0`。后端进程只听 `127.0.0.1` 上的内部端口，Pod 或 Compose 网络里的客户端打不到它们。对外端口不变：9090、3100、3200、4317、4318、4040。
+
+网关要求 `Authorization: Bearer <token>`。`/metrics`、`/ready`、`/-/ready`、`/-/healthy` 不带这个头，给探针和 Prometheus 抓取用。`X-Scope-OrgID` 会原样转给后端。`Authorization` 在转到后端之前被去掉。
+
+口令只来自环境变量 `INGEST_TOKEN`，或 Kubernetes Secret `ingest-auth` 的键 `token`。仓库里没有真实口令。
+
+| 路径 | 口令从哪来 |
+| --- | --- |
+| Compose | `deploy/docker-compose/.env.example` 写 `INGEST_TOKEN=dev-ingest-token`。这是本地占位，不是生产口令。未设置时 Compose 也用这个默认值 |
+| dev overlay | `deploy/kubernetes/overlays/dev/ingest-auth.yaml` 是同一个占位，并标了 `not-for-production` |
+| prod | overlay 里没有占位。用 `deploy/kubernetes/ingest-auth.secret.example.yaml`（token 是 `replace-me`，不在任何 kustomization 里）或 `TF_VAR_ingest_token`。Terraform 在 apply 之后创建 Secret `ingest-auth`。变量留空则不创建 |
+
+Collector 的 OTLP receiver 用 `bearertokenauth`。Alloy 的 remote write 和 `loki.write`、demo 的 OTLP exporter 和 Pyroscope SDK 都带同一个 Bearer。Grafana 数据源用 `$__env{INGEST_AUTHORIZATION}`，值必须是完整的 `Bearer <token>`，同时仍发送正确的 `X-Scope-OrgID`。
+
+## 副本
+
+工作负载集群的 Collector 副本数是 2，两份挂同一份配置。Alloy 仍是 DaemonSet：它挂节点目录并按 `NODE_NAME` 过滤，同一节点上再放一个 Pod 会抓两遍。中心的 Prometheus、Loki、Tempo、Pyroscope 仍是单进程本地盘。不要把它们的副本数改成 2 去写同一块 emptyDir。下一步是共享对象存储，见 `docs/review.md` 和 `deploy/terraform/README.md`。工作负载 Collector 上的 tail sampling 在每个副本里各自决定，两个副本不是链路 HA。
 
 ## 基数和倾斜
 
@@ -201,10 +239,14 @@ topk(10, count by (business_line, tenant, cluster) ({__name__=~".+"}))
 在某个 org 内部再看流：
 
 ```bash
-curl -sG -H 'X-Scope-OrgID: tob-acme' \
+curl -sG \
+  -H 'X-Scope-OrgID: tob-acme' \
+  -H 'Authorization: Bearer dev-ingest-token' \
   'http://127.0.0.1:3100/loki/api/v1/query' \
   --data-urlencode 'query=sum by (service_name, cluster) (count_over_time({business_line="tob"}[5m]))'
 ```
+
+`dev-ingest-token` 只用于本地 Compose 和 dev overlay。生产换成 Secret 里的口令，不要把生产口令写进这条命令再提交。
 
 某个 `cluster` 的流数远高于另一个，先看那个集群有没有把 trace id 或用户 id 放进索引标签。索引里允许 `cluster`、`tenant`、`business_line`，不允许 pod uid。
 

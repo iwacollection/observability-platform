@@ -10,7 +10,9 @@ multitenancy_enabled: true
 stream_over_http_enabled: true
 
 server:
-  http_listen_port: 3200
+  # 3200 is the nginx ingest gateway. This process is localhost-only.
+  http_listen_address: 127.0.0.1
+  http_listen_port: 13200
   log_level: info
 
 distributor:
@@ -18,9 +20,9 @@ distributor:
     otlp:
       protocols:
         grpc:
-          endpoint: 0.0.0.0:4317
+          endpoint: 127.0.0.1:14317
         http:
-          endpoint: 0.0.0.0:4318
+          endpoint: 127.0.0.1:14318
 
 metrics_generator:
   registry:
@@ -32,8 +34,11 @@ metrics_generator:
   storage:
     path: /var/tempo/generator/wal
     remote_write:
+      # -config.expand-env=true. INGEST_AUTHORIZATION is "Bearer <token>".
       - url: http://prometheus:9090/api/v1/write
         send_exemplars: true
+        headers:
+          Authorization: ${INGEST_AUTHORIZATION}
 
 storage:
   trace:

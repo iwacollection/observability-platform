@@ -13,6 +13,7 @@ services:
       - --feature-gates=service.profilesSupport
     environment:
       CLUSTER_NAME: local
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       PROMETHEUS_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
       LOKI_OTLP_ENDPOINT: http://loki:3100/otlp
       TEMPO_OTLP_ENDPOINT: tempo:4317
@@ -38,6 +39,7 @@ services:
       - --stability.level=generally-available
     environment:
       CLUSTER_NAME: local
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       PROMETHEUS_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
       LOKI_PUSH_URL: http://loki:3100/loki/api/v1/push
     volumes:
@@ -51,24 +53,43 @@ services:
     mem_limit: 256m
     restart: unless-stopped
 
+  # DNS name stays prometheus. The process is prometheus-store, loopback only.
+  # INGEST_TOKEN default is the local placeholder, not a production credential.
   prometheus:
+    image: nginx:1.28.0
+    entrypoint: ["/bin/sh", "/etc/ingest-gateway/entrypoint.sh"]
+    environment:
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      GATEWAY_MODE: http
+      HTTP_LISTEN: "9090"
+      HTTP_UPSTREAM: 127.0.0.1:19090
+    volumes:
+      - ../../config/ingest-gateway:/etc/ingest-gateway:ro
+    ports:
+      - "127.0.0.1:9090:9090"
+    mem_limit: 64m
+    restart: unless-stopped
+
+  prometheus-store:
     image: prom/prometheus:v3.15.0
+    network_mode: service:prometheus
+    depends_on:
+      prometheus:
+        condition: service_started
     command:
       - --config.file=/etc/prometheus/prometheus.yml
       - --storage.tsdb.path=/prometheus
       - --storage.tsdb.retention.time=15d
       - --web.enable-remote-write-receiver
       - --web.enable-lifecycle
-      - --web.listen-address=0.0.0.0:9090
+      - --web.listen-address=127.0.0.1:19090
       - --enable-feature=exemplar-storage
     volumes:
       - ../../config/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - ../../config/prometheus/rules:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
-    ports:
-      - "127.0.0.1:9090:9090"
     healthcheck:
-      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:9090/-/ready"]
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:19090/-/ready"]
       interval: 15s
       timeout: 5s
       retries: 10
@@ -97,40 +118,99 @@ services:
     restart: unless-stopped
 
   loki:
+    image: nginx:1.28.0
+    entrypoint: ["/bin/sh", "/etc/ingest-gateway/entrypoint.sh"]
+    environment:
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      GATEWAY_MODE: http
+      HTTP_LISTEN: "3100"
+      HTTP_UPSTREAM: 127.0.0.1:13100
+    volumes:
+      - ../../config/ingest-gateway:/etc/ingest-gateway:ro
+    ports:
+      - "127.0.0.1:3100:3100"
+    mem_limit: 64m
+    restart: unless-stopped
+
+  loki-store:
     image: grafana/loki:3.7.8
+    network_mode: service:loki
+    depends_on:
+      loki:
+        condition: service_started
     command:
       - -config.file=/etc/loki/loki.yaml
     volumes:
       - ../../config/loki/loki.yaml:/etc/loki/loki.yaml:ro
       - loki-data:/loki
-    ports:
-      - "127.0.0.1:3100:3100"
     mem_limit: 1g
     restart: unless-stopped
 
   tempo:
+    image: nginx:1.28.0
+    entrypoint: ["/bin/sh", "/etc/ingest-gateway/entrypoint.sh"]
+    environment:
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      GATEWAY_MODE: tempo
+      HTTP_LISTEN: "3200"
+      HTTP_UPSTREAM: 127.0.0.1:13200
+      GRPC_LISTEN: "4317"
+      GRPC_UPSTREAM: 127.0.0.1:14317
+      OTLP_HTTP_LISTEN: "4318"
+      OTLP_HTTP_UPSTREAM: 127.0.0.1:14318
+    volumes:
+      - ../../config/ingest-gateway:/etc/ingest-gateway:ro
+    ports:
+      - "127.0.0.1:3200:3200"
+    mem_limit: 64m
+    restart: unless-stopped
+
+  tempo-store:
     image: grafana/tempo:3.0.3
+    network_mode: service:tempo
+    depends_on:
+      tempo:
+        condition: service_started
     command:
       - -target=all
       - -config.file=/etc/tempo/tempo.yaml
+      - -config.expand-env=true
+    environment:
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      INGEST_AUTHORIZATION: ${INGEST_AUTHORIZATION:-Bearer dev-ingest-token}
     volumes:
       - ../../config/tempo/tempo.yaml:/etc/tempo/tempo.yaml:ro
       - tempo-data:/var/tempo
-    ports:
-      - "127.0.0.1:3200:3200"
     mem_limit: 1g
     restart: unless-stopped
 
   pyroscope:
+    image: nginx:1.28.0
+    entrypoint: ["/bin/sh", "/etc/ingest-gateway/entrypoint.sh"]
+    environment:
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      GATEWAY_MODE: pyroscope
+      HTTP_LISTEN: "4040"
+      HTTP_UPSTREAM: 127.0.0.1:14040
+    volumes:
+      - ../../config/ingest-gateway:/etc/ingest-gateway:ro
+    ports:
+      - "127.0.0.1:4040:4040"
+    mem_limit: 64m
+    restart: unless-stopped
+
+  pyroscope-store:
     image: grafana/pyroscope:2.3.1
+    network_mode: service:pyroscope
+    depends_on:
+      pyroscope:
+        condition: service_started
     command:
       - -config.file=/etc/pyroscope/config.yaml
       - -target=all
     volumes:
       - ../../config/pyroscope/config.yaml:/etc/pyroscope/config.yaml:ro
       - pyroscope-data:/data
-    ports:
-      - "127.0.0.1:4040:4040"
     mem_limit: 1g
     restart: unless-stopped
 
@@ -146,6 +226,8 @@ services:
       GF_SERVER_HTTP_ADDR: 0.0.0.0
       GF_SERVER_ROOT_URL: http://localhost:3000
       GF_FEATURE_TOGGLES_ENABLE: traceToProfiles tracesEmbeddedFlameGraph
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      INGEST_AUTHORIZATION: ${INGEST_AUTHORIZATION:-Bearer dev-ingest-token}
     volumes:
       - ../../config/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources:ro
       - ../../config/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards:ro
@@ -165,6 +247,7 @@ services:
       OTEL_SERVICE_NAME: toc-api
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
       PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
       BUSINESS_LINE: toc

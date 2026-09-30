@@ -92,7 +92,7 @@ OTLP 资源属性提升为索引标签的列表也在这个文件的 `otlp_confi
 
 Tempo 在 `config/tempo/tempo.yaml`。`-target=all`，本地块。`metrics_generator` 把 span metrics 和 service graph 写回 Prometheus，那是派生指标，原始 trace 仍在 Tempo 块里。块保留用 Tempo 3 的默认 14 天。单二进制没有 backend scheduler，不要在这个文件里单独开 worker 去改 `block_retention`。
 
-Pyroscope 在 `config/pyroscope/config.yaml`。v1 块保留 `compactor_blocks_retention_period: 168h`。入口速率是 `ingestion_rate_mb` 和 `ingestion_burst_size_mb`。
+Pyroscope 在 `config/pyroscope/config.yaml`。`multitenancy_enabled: true`，服务端读取 `X-Scope-OrgID`。v1 块保留 `compactor_blocks_retention_period: 168h`。入口速率是 `ingestion_rate_mb` 和 `ingestion_burst_size_mb`。
 
 ## 保留时间改哪里
 

@@ -51,9 +51,9 @@ business_lines:
     tenants:
       - id: acme
         org_id: tob-acme
-        # Local Compose runs this tenant. Northwind stays in the allow-list
-        # and in the rendered collector/datasources; set compose and replicas
-        # to turn the process on.
+        # compose starts the process on the local Compose network.
+        # replicas is the base/prod count. dev_replicas, when set, is what
+        # the dev overlay applies. Omit dev_replicas to keep the base count.
         compose: true
         replicas: 1
         host_ports:
@@ -61,8 +61,11 @@ business_lines:
           tob-billing: 8083
       - id: northwind
         org_id: tob-northwind
-        compose: false
+        # Local Compose and the dev overlay both run this tenant.
+        # Prod stays at replicas 0 until someone raises it on purpose.
+        compose: true
         replicas: 0
+        dev_replicas: 1
         host_ports:
           tob-admin: 8084
           tob-billing: 8085

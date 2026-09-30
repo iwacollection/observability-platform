@@ -3,10 +3,19 @@
 # binary default (v1-v2-dual), which is what the upstream Docker examples run.
 # Microservices and object storage belong on the Grafana Pyroscope Helm chart.
 
+# 4040 is the nginx ingest gateway in this pod's network namespace.
+# The process itself listens on localhost so a client cannot skip the gateway.
 server:
-  http_listen_port: 4040
-  grpc_listen_port: 9095
+  http_listen_address: 127.0.0.1
+  http_listen_port: 14040
+  grpc_listen_address: 127.0.0.1
+  grpc_listen_port: 19095
   log_level: info
+
+# Verified against grafana/pyroscope v2.3.1 cmd/pyroscope/pyroscope.yaml:
+# multitenancy_enabled makes the server read X-Scope-OrgID. When it is
+# false the header is ignored and every profile is stored as "anonymous".
+multitenancy_enabled: true
 
 storage:
   backend: filesystem
@@ -23,6 +32,9 @@ metastore:
 
 self_profiling:
   disable_push: false
+  # Pushes to this process, not through the gateway. The header is required
+  # because multitenancy_enabled is true. platform is the shared org.
+  tenant_id: platform
 
 limits:
   ingestion_rate_mb: 32

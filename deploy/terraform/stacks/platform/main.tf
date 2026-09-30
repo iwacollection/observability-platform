@@ -18,6 +18,7 @@ module "central" {
   cluster_name           = var.central_cluster_name
   grafana_admin_user     = var.grafana_admin_user
   grafana_admin_password = var.grafana_admin_password
+  ingest_token           = var.ingest_token
 }
 
 module "workload" {
@@ -33,6 +34,8 @@ module "workload" {
   tempo_otlp_endpoint         = each.value.tempo_otlp_endpoint
   pyroscope_otlp_endpoint     = each.value.pyroscope_otlp_endpoint
   pyroscope_http_url          = each.value.pyroscope_http_url
+  collector_replicas          = var.workload_collector_replicas
+  ingest_token                = var.ingest_token
 }
 
 module "binding_prod_a" {

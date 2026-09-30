@@ -34,6 +34,24 @@ variable "grafana_admin_password" {
   description = "Grafana admin password. Null skips Secret creation. Never commit this."
 }
 
+variable "ingest_token" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "Bearer token for remote write, Loki, Tempo, and Pyroscope ingest. Null skips Secret creation. The dev overlay already has the placeholder dev-ingest-token. Never commit this."
+}
+
+variable "workload_collector_replicas" {
+  type        = number
+  default     = 2
+  description = "Replicas of the stateless workload otel-collector. Alloy remains a DaemonSet. Central Prometheus, Loki, Tempo, and Pyroscope stay at one replica on local disks."
+
+  validation {
+    condition     = var.workload_collector_replicas >= 2 && var.workload_collector_replicas <= 5
+    error_message = "workload_collector_replicas must be 2-5."
+  }
+}
+
 variable "workload_clusters" {
   type = map(object({
     enabled                     = optional(bool, true)

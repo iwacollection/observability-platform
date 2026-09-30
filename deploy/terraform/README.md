@@ -153,6 +153,8 @@ workload_clusters = {
 | `central_cluster_name` | `local` | 必须是 `local` |
 | `grafana_admin_user` | `admin` | Secret 里的用户名 |
 | `grafana_admin_password` | `null` | sensitive。null 表示不创建 Secret |
+| `ingest_token` | `null` | sensitive。null 表示 apply 脚本不写 Secret `ingest-auth` |
+| `workload_collector_replicas` | `2` | 只改工作负载集群 Collector 的副本，范围 2 到 5 |
 
 工作负载 map 的每个对象：
 
@@ -169,3 +171,13 @@ workload_clusters = {
 | `pyroscope_http_url` | SDK 用的 `http://host:4040` |
 
 输出 `workload_clusters` 是当前会 apply 的集群名。`workload_remote_write_urls` 是它们的 remote write 地址。
+
+## 副本和写入口令
+
+`workload_collector_replicas` 默认 2。它只传给工作负载模块。`kubectl-apply.sh` 在 apply 之前改写 agent 清单里 `otel-collector` Deployment 的 `replicas`。两份 Pod 挂同一份 ConfigMap。中心栈的 Collector 保持 1。Alloy 保持 DaemonSet：它挂节点目录并按 `NODE_NAME` 过滤，同一节点上再放一个 Pod 会抓两遍。
+
+Prometheus、Loki、Tempo、Pyroscope 在这份 Terraform 里保持 1。它们的数据在本地盘或 emptyDir 上。再加一个副本会写两份互不相识的磁盘，不是 HA。下一步是给 Loki、Tempo、Pyroscope 接共享对象存储，指标侧再迁到 Mimir，然后才能谈存储副本。不要为了看起来像 HA 去改这些 Deployment 的 replicas。
+
+工作负载 Collector 打开了 tail sampling。两个副本各自采样。一条 trace 的 span 如果打到不同副本，采样决策不是全局的。这不是链路 HA。
+
+`ingest_token` 是 sensitive，默认 null。非空时 apply 脚本创建 Secret `ingest-auth`，键 `token`。dev overlay 已经带本地占位 `dev-ingest-token`，变量留空时不会覆盖它。prod overlay 不含这个占位，要设置 `TF_VAR_ingest_token` 或套用 `deploy/kubernetes/ingest-auth.secret.example.yaml`。不要把口令写进 tfvars。和 Grafana 密码一样，state 里可能出现这个值。远端 backend 要加密。

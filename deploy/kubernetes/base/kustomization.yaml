@@ -54,6 +54,12 @@ configMapGenerator:
   - name: nginx-config
     files:
       - nginx.conf=../../../config/nginx/nginx.conf
+  - name: ingest-gateway-config
+    files:
+      - entrypoint.sh=../../../config/ingest-gateway/entrypoint.sh
+      - http.conf.template=../../../config/ingest-gateway/http.conf.template
+      - tempo.conf.template=../../../config/ingest-gateway/tempo.conf.template
+      - pyroscope.conf.template=../../../config/ingest-gateway/pyroscope.conf.template
   - name: redis-config
     files:
       - redis.conf=../../../config/redis/redis.conf

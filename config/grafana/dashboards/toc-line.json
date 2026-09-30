@@ -217,6 +217,32 @@
           "expr": "{business_line=\"toc\", tenant=\"consumer\"}"
         }
       ]
+    },
+    {
+      "id": 9,
+      "type": "timeseries",
+      "title": "Exemplar\uff1aToC \u5ef6\u8fdf \u2192 tempo",
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "targets": [
+        {
+          "refId": "A",
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "http_server_request_duration_seconds_bucket{cluster=\"$cluster\",business_line=\"toc\",tenant=\"consumer\",http_route!=\"/healthz\"}",
+          "exemplar": true
+        }
+      ]
     }
   ],
   "templating": {

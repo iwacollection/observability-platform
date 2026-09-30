@@ -1,0 +1,13 @@
+# Local/dev placeholder. Not for production.
+# Prod does not include this object. Create Secret ingest-auth there from
+# deploy/kubernetes/ingest-auth.secret.example.yaml or TF_VAR_ingest_token.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: ingest-auth
+  labels:
+    app.kubernetes.io/name: ingest-auth
+    observability.platform/not-for-production: "true"
+type: Opaque
+stringData:
+  token: dev-ingest-token

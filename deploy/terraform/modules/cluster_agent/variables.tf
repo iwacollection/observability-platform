@@ -48,3 +48,21 @@ variable "pyroscope_http_url" {
   type        = string
   description = "Central Pyroscope HTTP URL for SDKs that push profiles directly."
 }
+
+variable "collector_replicas" {
+  type        = number
+  default     = 2
+  description = "Replicas of the stateless workload collector. Both pods mount the same ConfigMap. Do not use this for Prometheus, Loki, Tempo, or Pyroscope."
+
+  validation {
+    condition     = var.collector_replicas >= 2 && var.collector_replicas <= 5
+    error_message = "collector_replicas must be 2-5. Alloy stays a DaemonSet; storage binaries stay at one replica."
+  }
+}
+
+variable "ingest_token" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "Bearer token for the central ingest gateway. Null skips Secret creation. Never commit the value."
+}

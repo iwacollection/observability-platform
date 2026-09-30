@@ -40,16 +40,8 @@ spec:
             - -config.file=/etc/pyroscope/config.yaml
             - -target=all
           ports:
-            - name: http
-              containerPort: 4040
-          readinessProbe:
-            httpGet:
-              path: /ready
-              port: http
-          livenessProbe:
-            httpGet:
-              path: /ready
-              port: http
+            - name: backend
+              containerPort: 14040
           resources:
             requests:
               cpu: 100m
@@ -69,6 +61,52 @@ spec:
               mountPath: /data
             - name: tmp
               mountPath: /tmp
+        - name: ingest-gateway
+          image: nginx:1.28.0
+          imagePullPolicy: IfNotPresent
+          command: ["/bin/sh", "/etc/ingest-gateway/entrypoint.sh"]
+          env:
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
+            - name: GATEWAY_MODE
+              value: pyroscope
+            - name: HTTP_LISTEN
+              value: "4040"
+            - name: HTTP_UPSTREAM
+              value: 127.0.0.1:14040
+          ports:
+            - name: http
+              containerPort: 4040
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /ready
+              port: http
+          resources:
+            requests:
+              cpu: 10m
+              memory: 32Mi
+            limits:
+              memory: 64Mi
+          securityContext:
+            runAsUser: 10001
+            runAsGroup: 10001
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            capabilities:
+              drop: ["ALL"]
+          volumeMounts:
+            - name: ingest-gateway
+              mountPath: /etc/ingest-gateway
+              readOnly: true
+            - name: nginx-tmp
+              mountPath: /tmp
       volumes:
         - name: config
           configMap:
@@ -77,6 +115,11 @@ spec:
           persistentVolumeClaim:
             claimName: pyroscope-data
         - name: tmp
+          emptyDir: {}
+        - name: ingest-gateway
+          configMap:
+            name: ingest-gateway-config
+        - name: nginx-tmp
           emptyDir: {}
 ---
 apiVersion: v1

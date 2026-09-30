@@ -8,12 +8,12 @@
 
 - 在一台机器上把整套信号打通，确认应用接法、告警表达式和仪表盘。
 - 把同一份配置推进到一个 Kubernetes 命名空间，作为单副本、本地盘的起步环境。
-- 给还没有观测接入的服务一份对照实现：`examples/demo-app`。它现在同时代表 ToC（`toc-api`、`toc-checkout`）和 ToB（`tob-admin`、`tob-billing`，租户 `acme`）。目录在 `config/tenancy.yaml`，说明在 [docs/tenancy.md](docs/tenancy.md)。
+- 给还没有观测接入的服务一份对照实现：`examples/demo-app`。它现在同时代表 ToC（`toc-api`、`toc-checkout`）和 ToB（`tob-admin`、`tob-billing`，租户 `acme` 与 `northwind`）。目录在 `config/tenancy.yaml`，说明在 [docs/tenancy.md](docs/tenancy.md)。
 
 不做什么：
 
-- 不是多副本、不是对象存储、不是跨可用区。Loki / Tempo / Pyroscope / Prometheus 都是单进程。多集群指的是多个工作负载集群把数据送到这一套中心栈，不是把中心栈拆成多副本。
-- 不在组件之间做 mTLS，也不给 remote write 加鉴权。中心端点必须放在可达的内网里，不要暴露到公网。
+- 中心的 Loki / Tempo / Pyroscope / Prometheus 仍是单进程本地盘，不是对象存储，也不是跨可用区。工作负载集群的 Collector 是两个无状态副本，共用一份配置；这不包含存储 HA。多集群指的是多个工作负载集群把数据送到这一套中心栈。
+- 不在组件之间做 mTLS。写入路径要求 Bearer，见 [docs/tenancy.md](docs/tenancy.md)。中心端点仍不要暴露到公网。
 - 不内置某个云厂商的托管后端，也不把上游 Helm chart 的 tarball 塞进仓库。
 - 不替代应用自己的 OpenTelemetry SDK。Collector 只负责接收和转发。
 
@@ -333,7 +333,7 @@ make down
 
 Provisioning 在 `config/grafana/provisioning/`。
 
-- 数据源 UID：`prometheus` 仍是一套，靠标签区分租户。`loki` 和 `tempo` 固定查 org `toc`。ToB 每个租户另有 `loki-tob-acme`、`tempo-tob-acme`、`loki-tob-northwind`、`tempo-tob-northwind`。基础设施日志是 `loki-platform`。配错的租户在 `loki-rejected` 和 `tempo-rejected`。头里的值是 org id，不是密码。
+- 数据源 UID：`loki` 和 `tempo` 固定查 org `toc`。ToB 每个租户另有 `loki-tob-acme`、`tempo-tob-acme`、`loki-tob-northwind`、`tempo-tob-northwind`。Prometheus 查询是同一套 URL；uid `prometheus` 的 exemplar 打开 `tempo`，`prometheus-tob-acme` 打开 `tempo-tob-acme`，`prometheus-tob-northwind` 打开 `tempo-tob-northwind`。Pyroscope 同样按 org 分数据源。基础设施日志是 `loki-platform`。配错的租户在 `loki-rejected` 和 `tempo-rejected`。头里的 org id 不是密码。写入还要带 `Authorization`。
 - Tempo 数据源配置了 traces 到 logs、profiles、metrics 的跳转，以及 service map。
 - Loki 派生字段用正则 `"trace_id":"([0-9a-f]+)"` 跳到 Tempo。
 - 匿名访问关闭，不允许注册。功能开关 `traceToProfiles` 和 `tracesEmbeddedFlameGraph` 用来从 trace 看火焰图。
@@ -383,7 +383,7 @@ Demo 对照（`examples/demo-app`）：
 
 ## 8. Kubernetes 部署
 
-清单在 `deploy/kubernetes`。`base` 引用 `config/` 生成 ConfigMap。`overlays/dev` 把几块盘降到 2Gi，环境标成 `dev`。`overlays/prod` 加大请求/限制和磁盘，并把 demo 的环境标成 `prod`。两边都是单副本，并且都是完整的中心栈。工作负载集群用 `deploy/kubernetes/agent`，只包含 Alloy、Collector、node-exporter、kube-state-metrics 和 NetworkPolicy。
+清单在 `deploy/kubernetes`。`base` 引用 `config/` 生成 ConfigMap。`overlays/dev` 把几块盘降到 2Gi，环境标成 `dev`，并把 `northwind` 的两个 Deployment 设为 1。`overlays/prod` 加大请求/限制和磁盘，并把 demo 的环境标成 `prod`；`northwind` 在 prod 仍是 0。中心存储保持单副本。工作负载集群用 `deploy/kubernetes/agent`，包含 Alloy（DaemonSet）、两个副本的 Collector、node-exporter、kube-state-metrics 和 NetworkPolicy。
 
 多集群的管理入口是 Terraform，不是把下面的 `kubectl apply` 复制到每台机器上。`kubectl` 仍然是 Terraform 内部用来应用 Kustomize 输出的工具。只想在一个集群上看 YAML 时，可以继续用本节的命令。
 
@@ -514,8 +514,8 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 - 仓库里没有 token、密码和云厂商密钥。`deploy/docker-compose/.env.example` 里的 `admin` 是占位，真正的 `.env` 不入库。
 - Compose 把端口绑在 `127.0.0.1`。这只防护宿主机网卡，不防护已经在 Docker 网络里的容器。
 - 本地 Grafana 默认 `admin` / `admin`。这个组合只允许出现在你自己的笔记本上。Kubernetes 必须先建 Secret。
-- Prometheus remote write、Loki、Tempo、Pyroscope、Collector 都没有认证。不要把 9090、3100、3200、4040、4317 暴露到公网或集群外。
-- Loki `auth_enabled: true`，Tempo `multitenancy_enabled: true`。org id 是允许表，不是用户 id，也不是口令。前面仍然没有鉴权网关，不要把 9090、3100、3200、4040、4317 暴露到公网。
+- Remote write、Loki、Tempo、Pyroscope 和 Collector 的 OTLP 要求 `Authorization: Bearer`。口令来自 `INGEST_TOKEN` 或 Secret `ingest-auth`。本地占位 `dev-ingest-token` 写在 `deploy/docker-compose/.env.example` 和 dev overlay 里，不是生产口令。`/metrics` 和健康检查不带头。不要把 9090、3100、3200、4040、4317 暴露到公网或集群外。
+- Loki `auth_enabled: true`，Tempo `multitenancy_enabled: true`，Pyroscope `multitenancy_enabled: true`。org id 是允许表，不是用户 id，也不是口令。网关去掉 `Authorization` 之后，`X-Scope-OrgID` 仍会转到后端。
 - Alloy 为了主机指标把宿主机根目录只读挂进容器，Kubernetes 里还以 root 跑 DaemonSet。这是节点代理的权限，不是应用的权限。应用 Deployment 关掉了 ServiceAccount token，根文件系统只读，丢掉全部 capabilities。
 - cAdvisor 走 API server 代理，使用集群 CA，而不是 `insecure_skip_verify` 直连 kubelet。
 - 示例 webhook 使用 `.invalid`，避免误打到真实地址。把它换成内网地址之前，先确认 NetworkPolicy 的出站是否仍然全开。
@@ -587,11 +587,11 @@ make test
 4. 业务：ToC 是订单、支付、结账延迟、活跃用户。ToB 是发票、席位、API 配额。聚合保留 `tenant` 和 `cluster`，ToB 租户之间、ToB 与 ToC 之间都不相加。
 5. 自身：Collector、Prometheus、Loki、Tempo、Pyroscope、Grafana、Alertmanager、Alloy 的管道指标和告警。
 
-多集群已经接在这个仓库里：中心栈仍是单副本本地盘，工作负载集群通过 Terraform 把 agent 指到中心端点。还没做的是把中心进程拆成多副本。
+多集群已经接在这个仓库里：工作负载集群通过 Terraform 把 agent 指到中心端点。工作负载 Collector 是两个无状态副本。中心存储仍是单进程本地盘。
 
 1. 中心集群继续用 `overlays/dev` 或 `overlays/prod`。中心节点上的 node-exporter 仍由 Prometheus 抓取 Service `node-exporter:9100`，这只适合中心侧单节点。工作负载集群由 `config/alloy/config.workload.alloy` 按节点抓取，job 仍是 `node`，instance 是节点名，不和 `alloy-unix` 混加。
-2. 给 remote write、Loki、Tempo、Pyroscope 前面加鉴权网关，NetworkPolicy 收紧出站，Grafana 改到 Ingress 后面并打开 TLS。
-3. 指标从单机 Prometheus 迁到 Mimir（或 Thanos）。规则文件可以原样挂到 Mimir ruler。
-4. 日志改 Loki scalable 模式加对象存储；链路改 Tempo 分布式；Profile 改 Pyroscope 微服务。用对应 Helm chart，不要复制本仓库的 Deployment 去凑副本。
+2. 写入鉴权已经在 nginx 网关上。还没做的是 mTLS、收紧 NetworkPolicy 的出站，以及把 Grafana 放到 Ingress 后面并打开 TLS。
+3. 指标从单机 Prometheus 迁到 Mimir（或 Thanos）。规则文件可以原样挂到 Mimir ruler。在那之前不要给 Prometheus 再加一个写同一块盘的副本。
+4. 日志改 Loki scalable 模式加对象存储；链路改 Tempo 分布式；Profile 改 Pyroscope 的对象存储后端。用对应 Helm chart。共享对象存储是存储 HA 的下一步，不要复制本仓库的 Deployment 去凑副本。
 5. 采集层保持现在的分工：Alloy 做节点，Collector 做网关。应用继续只认 OTLP。
 6. SLO 抄到真实服务时，保留 `cluster`、`tenant`、`business_line`，只改 `service_name` 选择器和预算数字，烧录结构留在 [docs/slo.md](docs/slo.md)。ToC 失败比用 `toc:payments:failure_ratio5m`，ToB 发票用 `tob:invoices:failure_ratio5m`。不要新开一组高基数标签，也不要把两个租户加在一起。

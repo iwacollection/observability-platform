@@ -59,6 +59,13 @@ spec:
               value: 0.0.0.0
             - name: GF_FEATURE_TOGGLES_ENABLE
               value: traceToProfiles tracesEmbeddedFlameGraph
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
+            - name: INGEST_AUTHORIZATION
+              value: "Bearer $(INGEST_TOKEN)"
           ports:
             - name: http
               containerPort: 3000

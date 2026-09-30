@@ -97,6 +97,22 @@ def telemetry_enabled() -> bool:
     return os.environ.get("OTEL_ENABLED", "true").lower() not in {"0", "false", "no"}
 
 
+def ingest_token() -> str:
+    """Bearer token for the ingest gateway and the collector receiver.
+
+    Empty when unset so unit tests do not invent a credential. Compose and
+    the dev overlay set the documented placeholder dev-ingest-token.
+    """
+    return os.environ.get("INGEST_TOKEN", "").strip()
+
+
+def otlp_headers() -> dict[str, str]:
+    token = ingest_token()
+    if not token:
+        return {}
+    return {"authorization": f"Bearer {token}"}
+
+
 def grpc_target(raw: str) -> tuple[str, bool]:
     """Return (host:port, insecure) for the OTLP gRPC exporter."""
     value = raw.strip().rstrip("/")
@@ -149,6 +165,8 @@ def setup_telemetry(logger: logging.Logger, identity: dict[str, str] | None = No
     cluster = os.environ.get("CLUSTER_NAME", "local")
     business_line = identity["business_line"]
     tenant = identity["tenant"]
+    org_id = identity["org_id"]
+    headers = otlp_headers()
     endpoint, insecure = grpc_target(
         os.environ.get("OTEL_EXPORTER_OTLP_ENDPOINT", "http://otel-collector:4317")
     )
@@ -172,7 +190,7 @@ def setup_telemetry(logger: logging.Logger, identity: dict[str, str] | None = No
 
     tracer_provider = TracerProvider(resource=resource)
     tracer_provider.add_span_processor(
-        BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=insecure, timeout=5))
+        BatchSpanProcessor(OTLPSpanExporter(endpoint=endpoint, insecure=insecure, timeout=5, headers=headers))
     )
     try:
         from pyroscope.otel import PyroscopeSpanProcessor
@@ -183,7 +201,7 @@ def setup_telemetry(logger: logging.Logger, identity: dict[str, str] | None = No
     trace.set_tracer_provider(tracer_provider)
 
     reader = PeriodicExportingMetricReader(
-        OTLPMetricExporter(endpoint=endpoint, insecure=insecure, timeout=5),
+        OTLPMetricExporter(endpoint=endpoint, insecure=insecure, timeout=5, headers=headers),
         export_interval_millis=interval_ms,
     )
     meter_provider = MeterProvider(
@@ -263,14 +281,14 @@ def setup_telemetry(logger: logging.Logger, identity: dict[str, str] | None = No
 
     log_provider = LoggerProvider(resource=resource)
     log_provider.add_log_record_processor(
-        BatchLogRecordProcessor(OTLPLogExporter(endpoint=endpoint, insecure=insecure, timeout=5))
+        BatchLogRecordProcessor(OTLPLogExporter(endpoint=endpoint, insecure=insecure, timeout=5, headers=headers))
     )
     set_logger_provider(log_provider)
     otel_handler = LoggingHandler(level=logging.INFO, logger_provider=log_provider)
     otel_handler.setFormatter(JsonFormatter())
     logger.addHandler(otel_handler)
 
-    _configure_pyroscope(logger, service_name, environment, cluster, business_line, tenant)
+    _configure_pyroscope(logger, service_name, environment, cluster, business_line, tenant, org_id)
     return Telemetry(trace.get_tracer("demo-app"), histogram, active, business)
 
 
@@ -290,6 +308,7 @@ def _configure_pyroscope(
     cluster: str,
     business_line: str,
     tenant: str,
+    org_id: str,
 ) -> None:
     address = os.environ.get("PYROSCOPE_SERVER_ADDRESS", "").strip()
     if not address:
@@ -297,9 +316,14 @@ def _configure_pyroscope(
     try:
         import pyroscope
 
+        token = ingest_token()
+        # tenant_id is X-Scope-OrgID (pyroscope-io 1.2.4). http_headers carries
+        # the ingest bearer token; the SDK has no separate bearer argument.
         pyroscope.configure(
             application_name=service_name,
             server_address=address,
+            tenant_id=org_id,
+            http_headers={"Authorization": f"Bearer {token}"} if token else {},
             tags={
                 "service_name": service_name,
                 "deployment_environment": environment,

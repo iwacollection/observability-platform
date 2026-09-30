@@ -11,9 +11,15 @@ datasources:
     jsonData:
       timeInterval: 15s
       httpMethod: POST
+      # ToC only. ToB series use prometheus-tob-<org> from tenancy.yaml,
+      # whose exemplar destination is tempo-tob-<org>, not this uid.
       exemplarTraceIdDestinations:
         - name: trace_id
           datasourceUid: tempo
+      httpHeaderName1: Authorization
+    # Bearer $__env{INGEST_AUTHORIZATION}. Not a token. Grafana expands it.
+    secureJsonData:
+      httpHeaderValue1: $__env{INGEST_AUTHORIZATION}
 
   - name: Loki
     uid: loki
@@ -24,6 +30,7 @@ datasources:
     jsonData:
       timeout: 60
       httpHeaderName1: X-Scope-OrgID
+      httpHeaderName2: Authorization
       derivedFields:
         - name: TraceID
           matcherRegex: '"trace_id":"([0-9a-f]+)"'
@@ -33,6 +40,7 @@ datasources:
     # Org id toc, not a secret. Grafana only accepts header values here.
     secureJsonData:
       httpHeaderValue1: toc
+      httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
 
   - name: Tempo
     uid: tempo
@@ -43,6 +51,7 @@ datasources:
     jsonData:
       httpMethod: GET
       httpHeaderName1: X-Scope-OrgID
+      httpHeaderName2: Authorization
       tracesToLogsV2:
         datasourceUid: loki
         filterByTraceID: true
@@ -72,6 +81,7 @@ datasources:
         datasourceUid: loki
     secureJsonData:
       httpHeaderValue1: toc
+      httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
 
   - name: Pyroscope
     uid: pyroscope
@@ -79,6 +89,12 @@ datasources:
     access: proxy
     url: http://pyroscope:4040
     editable: false
+    jsonData:
+      httpHeaderName1: X-Scope-OrgID
+      httpHeaderName2: Authorization
+    secureJsonData:
+      httpHeaderValue1: toc
+      httpHeaderValue2: $__env{INGEST_AUTHORIZATION}
 
   - name: Alertmanager
     uid: alertmanager

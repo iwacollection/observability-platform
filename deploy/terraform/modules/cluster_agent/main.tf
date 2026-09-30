@@ -18,17 +18,19 @@ locals {
 
 resource "terraform_data" "agent" {
   input = {
-    kubeconfig     = var.kubeconfig
-    kube_context   = var.kube_context
-    cluster_name   = var.cluster_name
-    repo_root      = local.repo_root
-    checksum       = local.checksum
-    prometheus     = var.prometheus_remote_write_url
-    loki_push      = var.loki_push_url
-    loki_otlp      = var.loki_otlp_endpoint
-    tempo          = var.tempo_otlp_endpoint
-    pyroscope      = var.pyroscope_otlp_endpoint
-    pyroscope_http = var.pyroscope_http_url
+    kubeconfig         = var.kubeconfig
+    kube_context       = var.kube_context
+    cluster_name       = var.cluster_name
+    repo_root          = local.repo_root
+    checksum           = local.checksum
+    prometheus         = var.prometheus_remote_write_url
+    loki_push          = var.loki_push_url
+    loki_otlp          = var.loki_otlp_endpoint
+    tempo              = var.tempo_otlp_endpoint
+    pyroscope          = var.pyroscope_otlp_endpoint
+    pyroscope_http     = var.pyroscope_http_url
+    collector_replicas = var.collector_replicas
+    ingest_token       = var.ingest_token
   }
 
   provisioner "local-exec" {
@@ -44,6 +46,8 @@ resource "terraform_data" "agent" {
       ENDPOINTS_TEMPO_OTLP_ENDPOINT         = self.input.tempo
       ENDPOINTS_PYROSCOPE_OTLP_ENDPOINT     = self.input.pyroscope
       ENDPOINTS_PYROSCOPE_HTTP_URL          = self.input.pyroscope_http
+      WORKLOAD_COLLECTOR_REPLICAS           = tostring(self.input.collector_replicas)
+      INGEST_TOKEN                          = self.input.ingest_token == null ? "" : self.input.ingest_token
     }
   }
 

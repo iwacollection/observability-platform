@@ -10,8 +10,10 @@
 auth_enabled: true
 
 server:
-  http_listen_address: 0.0.0.0
-  http_listen_port: 3100
+  # 3100 is the nginx ingest gateway. This process is localhost-only.
+  http_listen_address: 127.0.0.1
+  http_listen_port: 13100
+  grpc_listen_address: 127.0.0.1
   grpc_listen_port: 9096
   log_level: info
   grpc_server_max_concurrent_streams: 1000

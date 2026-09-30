@@ -16,6 +16,115 @@ export PATH="/tmp/obs-tools/bin:${PATH}"
 note "tenancy render"
 python3 "$root/scripts/render_tenancy.py" --check || die "tenancy render drift"
 
+note "local tenancy and exemplars"
+python3 - <<'PY'
+import json
+import pathlib
+import sys
+
+import yaml
+
+root = pathlib.Path(".")
+errors = []
+compose = (root / "deploy/docker-compose/businesses.yml").read_text()
+for needle in (
+    "tob-admin-northwind:",
+    "tob-billing-northwind:",
+    "127.0.0.1:8084:8080",
+    "127.0.0.1:8085:8080",
+    "TENANT_ID: northwind",
+):
+    if needle not in compose:
+        errors.append(f"local compose missing {needle}")
+
+dev_k = (root / "deploy/kubernetes/overlays/dev/kustomization.yaml").read_text()
+for name in ("replicas-tob-admin-northwind.yaml", "replicas-tob-billing-northwind.yaml"):
+    if name not in dev_k:
+        errors.append(f"dev overlay missing {name}")
+    body = (root / "deploy/kubernetes/overlays/dev" / name).read_text()
+    if "replicas: 1" not in body:
+        errors.append(f"{name} is not replicas 1")
+
+base = (root / "deploy/kubernetes/base/business-workloads.yaml").read_text()
+# Prod inherits the base count. Northwind stays smaller than dev.
+if "name: tob-admin-northwind" not in base or "name: tob-billing-northwind" not in base:
+    errors.append("base workloads missing northwind")
+
+prod = "\n".join(path.read_text() for path in (root / "deploy/kubernetes/overlays/prod").glob("*.yaml"))
+if "dev-ingest-token" in prod:
+    errors.append("prod overlay contains the dev ingest placeholder")
+
+datasources = list(yaml.safe_load_all((root / "config/grafana/provisioning/datasources/tenancy.yaml").read_text()))
+items = []
+for doc in datasources:
+    if isinstance(doc, dict):
+        items.extend(doc.get("datasources") or [])
+by_uid = {item.get("uid"): item for item in items}
+main = yaml.safe_load((root / "config/grafana/provisioning/datasources/datasources.yaml").read_text())
+for item in main.get("datasources") or []:
+    by_uid[item.get("uid")] = item
+
+def exemplar_uid(item):
+    dests = (item.get("jsonData") or {}).get("exemplarTraceIdDestinations") or []
+    if not dests:
+        return None
+    return dests[0].get("datasourceUid")
+
+expected = {
+    "prometheus": "tempo",
+    "prometheus-tob-acme": "tempo-tob-acme",
+    "prometheus-tob-northwind": "tempo-tob-northwind",
+}
+for uid, want in expected.items():
+    got = exemplar_uid(by_uid.get(uid) or {})
+    if got != want:
+        errors.append(f"{uid} exemplar destination is {got}, want {want}")
+    if uid.startswith("prometheus-tob-") and got == "tempo":
+        errors.append(f"{uid} points at the ToC tempo uid")
+
+tob = json.loads((root / "config/grafana/dashboards/tob-line.json").read_text())
+seen = set()
+for panel in tob.get("panels", []):
+    ds = (panel.get("datasource") or {}).get("uid")
+    for target in panel.get("targets") or []:
+        if not target.get("exemplar"):
+            continue
+        target_uid = (target.get("datasource") or {}).get("uid")
+        seen.add(target_uid)
+        if target_uid in {None, "prometheus", "tempo"}:
+            errors.append(f"tob exemplar panel {panel.get('id')} uses {target_uid}")
+        mapped = exemplar_uid(by_uid.get(target_uid) or {})
+        if mapped == "tempo":
+            errors.append(f"tob exemplar panel {panel.get('id')} maps to ToC tempo")
+for uid in ("prometheus-tob-acme", "prometheus-tob-northwind"):
+    if uid not in seen:
+        errors.append(f"tob-line.json has no exemplar panel on {uid}")
+
+pyroscope = (root / "config/pyroscope/config.yaml").read_text()
+if "multitenancy_enabled: true" not in pyroscope:
+    errors.append("pyroscope multitenancy_enabled is not true")
+collector = (root / "config/otel-collector/config.yaml").read_text()
+for org in ("toc", "tob-acme", "tob-northwind"):
+    if f"X-Scope-OrgID: {org}" not in collector:
+        errors.append(f"collector missing X-Scope-OrgID {org}")
+if "X-Scope-OrgID: rejected" not in collector:
+    errors.append("collector OTLP profiles are not quarantined to org rejected")
+if "otlp/pyroscope_acme:" in collector:
+    errors.append("collector claims a per-tenant pyroscope route the 0.161 routing connector cannot do")
+telemetry = (root / "examples/demo-app/src/demo_app/telemetry.py").read_text()
+if "tenant_id=org_id" not in telemetry:
+    errors.append("demo SDK does not send the Pyroscope org id")
+
+agent = (root / "deploy/kubernetes/agent/kustomization.yaml").read_text()
+if "count: 2" not in agent:
+    errors.append("workload collector replica count is not 2")
+
+if errors:
+    print("\n".join(errors))
+    sys.exit(1)
+print("northwind local render and tenant exemplar mapping ok")
+PY
+
 note "image pins"
 python3 - <<'PY'
 import pathlib, sys
@@ -92,7 +201,13 @@ for path in root.rglob("*.json"):
                 "prometheus", "loki", "tempo", "pyroscope", "alertmanager", None, "-- Grafana --"
             }
             if isinstance(ds, dict) and uid not in allowed and not (
-                isinstance(uid, str) and (uid.startswith("loki-") or uid.startswith("tempo-"))
+                isinstance(uid, str)
+                and (
+                    uid.startswith("loki-")
+                    or uid.startswith("tempo-")
+                    or uid.startswith("prometheus-")
+                    or uid.startswith("pyroscope-")
+                )
             ):
                 errors.append(f"{path}: panel {panel.get('id')} datasource uid {uid}")
         if path.name in {"toc-line.json", "tob-line.json", "application.json", "business.json"}:
@@ -119,6 +234,7 @@ if command -v alloy >/dev/null 2>&1; then
   alloy fmt --test "$root/config/alloy/config.workload.alloy" || die "alloy fmt workload"
   # Remote-write URLs and the cluster label are read from the environment.
   export CLUSTER_NAME=local
+  export INGEST_TOKEN=dev-ingest-token
   export PROMETHEUS_REMOTE_WRITE_URL=http://prometheus:9090/api/v1/write
   export LOKI_PUSH_URL=http://loki:3100/loki/api/v1/push
   alloy validate "$root/config/alloy/config.alloy" || die "alloy validate local"
@@ -131,6 +247,8 @@ fi
 
 note "collector config"
 if command -v otelcol-contrib >/dev/null 2>&1; then
+  # The collector config has no token default. Validate with the local placeholder.
+  export INGEST_TOKEN=dev-ingest-token
   otelcol-contrib validate --config "$root/config/otel-collector/config.yaml" --feature-gates service.profilesSupport || die "otelcol validate"
 else
   warn "otelcol-contrib not found; skipped collector validate"
@@ -199,6 +317,37 @@ if missing:
     raise SystemExit("kustomize output missing: " + ", ".join(missing))
 if "CLUSTER_NAME: local" not in text:
     raise SystemExit("central overlay missing CLUSTER_NAME=local endpoints")
+if "dev-ingest-token" not in text:
+    raise SystemExit("dev overlay missing the local ingest placeholder")
+if "tob-admin-northwind" not in text or "tob-billing-northwind" not in text:
+    raise SystemExit("dev overlay missing northwind workloads")
+
+def deployment_replicas(blob, name):
+    chunks = blob.split("---\n")
+    for chunk in chunks:
+        if f"kind: Deployment\n" in chunk and f"\n  name: {name}\n" in chunk:
+            for line in chunk.splitlines():
+                if line.startswith("  replicas:"):
+                    return int(line.split(":", 1)[1].strip())
+    return None
+
+for name in ("tob-admin-northwind", "tob-billing-northwind"):
+    if deployment_replicas(text, name) != 1:
+        raise SystemExit(f"dev {name} replicas are not 1")
+prod_text = Path("/tmp/observability-prod.yaml").read_text()
+if "dev-ingest-token" in prod_text:
+    raise SystemExit("prod render contains the dev ingest placeholder")
+for name in ("tob-admin-northwind", "tob-billing-northwind"):
+    if deployment_replicas(prod_text, name) != 0:
+        raise SystemExit(f"prod {name} replicas are not 0")
+for name in ("prometheus", "loki", "tempo", "pyroscope"):
+    if deployment_replicas(text, name) != 1 or deployment_replicas(prod_text, name) != 1:
+        raise SystemExit(f"{name} is not a single replica")
+agent_text = Path("/tmp/observability-agent.yaml").read_text()
+if deployment_replicas(agent_text, "otel-collector") != 2:
+    raise SystemExit("workload otel-collector replicas are not 2")
+if deployment_replicas(text, "otel-collector") != 1:
+    raise SystemExit("central otel-collector should stay at 1 replica")
 agent = Path("/tmp/observability-agent.yaml").read_text()
 missing_agent = [n for n in (
     "kind: DaemonSet",

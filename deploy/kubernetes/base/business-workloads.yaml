@@ -1,6 +1,7 @@
 # Generated from config/tenancy.yaml by scripts/render_tenancy.py.
 # toc-api is deploy/kubernetes/base/demo-app.yaml (service demo-app).
-# replicas 0 keeps a tenant in the catalog without scheduling pods.
+# replicas is the base and prod count. The dev overlay raises a
+# tenant when tenancy.yaml sets dev_replicas.
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -42,6 +43,11 @@ spec:
               value: http://otel-collector:4317
             - name: PYROSCOPE_SERVER_ADDRESS
               value: http://pyroscope:4040
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
             - name: CLUSTER_NAME
@@ -145,6 +151,11 @@ spec:
               value: http://otel-collector:4317
             - name: PYROSCOPE_SERVER_ADDRESS
               value: http://pyroscope:4040
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
             - name: CLUSTER_NAME
@@ -248,6 +259,11 @@ spec:
               value: http://otel-collector:4317
             - name: PYROSCOPE_SERVER_ADDRESS
               value: http://pyroscope:4040
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
             - name: CLUSTER_NAME
@@ -351,6 +367,11 @@ spec:
               value: http://otel-collector:4317
             - name: PYROSCOPE_SERVER_ADDRESS
               value: http://pyroscope:4040
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
             - name: CLUSTER_NAME
@@ -454,6 +475,11 @@ spec:
               value: http://otel-collector:4317
             - name: PYROSCOPE_SERVER_ADDRESS
               value: http://pyroscope:4040
+            - name: INGEST_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: ingest-auth
+                  key: token
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
             - name: CLUSTER_NAME
