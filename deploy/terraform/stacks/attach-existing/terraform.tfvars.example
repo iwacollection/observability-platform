@@ -37,3 +37,18 @@ grafana_url                 = "http://grafana.obs.example.invalid:3000"
 #   manage_grafana = false
 
 manage_grafana = true
+
+# Default false: HTTPS ingest uses TLS. Set true only for an explicit
+# plaintext endpoint. Do not commit a CA. A private CA is
+# TF_VAR_exporter_tls_ca_pem, not a file in this directory.
+exporter_tls_insecure = false
+
+# Default false: agent only. true also installs the generated ToC/ToB demos
+# (demo-app and business-workloads.yaml). Replica counts follow tenancy.yaml
+# replicas, so northwind stays at 0 until that catalog field changes.
+install_demo_workloads = false
+
+# true when the existing Prometheus is this repo's binary. The rule file is
+# still only an output. This stack does not upload it and does not create
+# recording-rule names on that Prometheus.
+existing_prometheus_is_repo = false

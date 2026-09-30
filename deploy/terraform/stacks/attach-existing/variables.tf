@@ -219,3 +219,28 @@ variable "collector_replicas" {
     error_message = "collector_replicas must be 2-5."
   }
 }
+
+variable "exporter_tls_insecure" {
+  type        = bool
+  default     = false
+  description = "Plaintext for Loki, Tempo, and Pyroscope OTLP exporters. Default false, so an existing https ingest uses TLS and the system trust store. Set true only for an explicit plaintext endpoint. Do not commit a CA certificate. A private CA is TF_VAR_exporter_tls_ca_pem."
+}
+
+variable "exporter_tls_ca_pem" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "Optional PEM for a private CA. Pass it as TF_VAR_exporter_tls_ca_pem. Never put it in tfvars or git. Used only when exporter_tls_insecure is false. Empty uses the collector's system trust store."
+}
+
+variable "install_demo_workloads" {
+  type        = bool
+  default     = false
+  description = "When false (the default), this stack installs only the agent. When true, it also installs the generated ToC and ToB demo workloads (demo-app, business-workloads.yaml) on this cluster. Replica counts are the catalog replicas, not dev_replicas."
+}
+
+variable "existing_prometheus_is_repo" {
+  type        = bool
+  default     = false
+  description = "True when the existing Prometheus is this repo's single-binary Prometheus, which already loads config/prometheus/rules/tenancy.yml from the platform stack. This stack still cannot upload that file: Prometheus has no rules API that works without a live server. The rule YAML is always emitted as output prometheus_tenancy_rules. Recording-rule names are not created remotely either way. Grafana alerting uses the same expressions inlined."
+}

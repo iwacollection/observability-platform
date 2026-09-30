@@ -16,3 +16,7 @@ data:
   TEMPO_OTLP_ENDPOINT: tempo:4317
   PYROSCOPE_OTLP_ENDPOINT: pyroscope:4040
   PYROSCOPE_HTTP_URL: http://pyroscope:4040
+  # Explicit plaintext flag. This repo's central Loki, Tempo, and Pyroscope
+  # speak plaintext. stacks/attach-existing writes false unless the operator
+  # sets exporter_tls_insecure. Do not put a CA certificate in this file.
+  OTEL_EXPORTER_TLS_INSECURE: "true"

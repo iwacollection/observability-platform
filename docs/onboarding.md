@@ -31,7 +31,7 @@ environment:
   OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
   OTEL_METRIC_EXPORT_INTERVAL: "5000"
   OTEL_METRICS_EXEMPLAR_FILTER: trace_based
-  PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+  PYROSCOPE_HTTP_URL: http://pyroscope:4040
   DEPLOYMENT_ENVIRONMENT: local
 ```
 

@@ -40,8 +40,11 @@ spec:
               value: api
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: http://pyroscope:4040
+            - name: PYROSCOPE_HTTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_HTTP_URL
             - name: DEPLOYMENT_ENVIRONMENT
               value: dev
             - name: CLUSTER_NAME

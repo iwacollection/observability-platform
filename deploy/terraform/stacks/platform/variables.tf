@@ -73,6 +73,9 @@ variable "workload_clusters" {
     tempo_otlp_endpoint         = string
     pyroscope_otlp_endpoint     = string
     pyroscope_http_url          = string
+    # True because this repo's central Loki, Tempo, and Pyroscope are plaintext.
+    # Set false only when those three OTLP endpoints actually speak TLS.
+    exporter_tls_insecure = optional(bool, true)
   }))
   description = "Workload clusters. Adding a cluster is a new map entry. The example aliases require the keys prod-a and prod-b."
 

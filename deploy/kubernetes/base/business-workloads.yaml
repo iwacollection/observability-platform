@@ -41,8 +41,11 @@ spec:
               value: toc-checkout
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: http://pyroscope:4040
+            - name: PYROSCOPE_HTTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_HTTP_URL
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -149,8 +152,11 @@ spec:
               value: tob-admin
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: http://pyroscope:4040
+            - name: PYROSCOPE_HTTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_HTTP_URL
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -257,8 +263,11 @@ spec:
               value: tob-billing
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: http://pyroscope:4040
+            - name: PYROSCOPE_HTTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_HTTP_URL
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -365,8 +374,11 @@ spec:
               value: tob-admin
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: http://pyroscope:4040
+            - name: PYROSCOPE_HTTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_HTTP_URL
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -473,8 +485,11 @@ spec:
               value: tob-billing
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: http://pyroscope:4040
+            - name: PYROSCOPE_HTTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_HTTP_URL
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:

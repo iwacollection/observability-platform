@@ -55,6 +55,19 @@ spec:
                 configMapKeyRef:
                   name: observability-endpoints
                   key: PYROSCOPE_OTLP_ENDPOINT
+            # "true" only for this repo's plaintext central stack. Attach
+            # writes "false" unless exporter_tls_insecure is set.
+            - name: OTEL_EXPORTER_TLS_INSECURE
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: OTEL_EXPORTER_TLS_INSECURE
+            - name: OTEL_EXPORTER_TLS_CA_FILE
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: OTEL_EXPORTER_TLS_CA_FILE
+                  optional: true
             # Optional. The central ConfigMap omits these keys. A workload
             # ConfigMap sets them, empty on the platform path and filled in
             # by stacks/attach-existing.
@@ -117,12 +130,21 @@ spec:
             - name: config
               mountPath: /etc/otelcol-contrib/config.yaml
               subPath: config.yaml
+            - name: exporter-tls-ca
+              mountPath: /etc/otel-exporter-tls
+              readOnly: true
             - name: tmp
               mountPath: /tmp
       volumes:
         - name: config
           configMap:
             name: otel-collector-config
+        # Optional. Created only when a CA PEM is supplied out of band.
+        # The manifest does not contain a certificate.
+        - name: exporter-tls-ca
+          secret:
+            secretName: otel-exporter-tls-ca
+            optional: true
         - name: tmp
           emptyDir: {}
 ---

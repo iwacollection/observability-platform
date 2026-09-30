@@ -38,6 +38,8 @@ module "workload" {
   collector_replicas          = var.workload_collector_replicas
   ingest_token                = var.ingest_token
   require_ingest_token        = var.central_overlay == "prod"
+  exporter_tls_insecure       = each.value.exporter_tls_insecure
+  install_demo_workloads      = false
 }
 
 module "binding_prod_a" {

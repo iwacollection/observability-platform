@@ -14,6 +14,9 @@ services:
     environment:
       CLUSTER_NAME: local
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
+      # Explicit plaintext flag for this local stack. attach-existing defaults
+      # the same variable to false so an existing HTTPS ingest works.
+      OTEL_EXPORTER_TLS_INSECURE: "true"
       PROMETHEUS_REMOTE_WRITE_URL: http://prometheus:9090/api/v1/write
       LOKI_OTLP_ENDPOINT: http://loki:3100/otlp
       TEMPO_OTLP_ENDPOINT: tempo:4317
@@ -246,7 +249,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: toc-api
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local

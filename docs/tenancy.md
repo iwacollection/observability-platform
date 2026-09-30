@@ -27,7 +27,9 @@ Prometheus 仍然是一套 TSDB，靠标签隔离。没有在这个钉死的单�
 
 Pyroscope `grafana/pyroscope:2.3.1` 在 `multitenancy_enabled: true` 时读取 `X-Scope-OrgID`。这是对着该标签源码里的 `cmd/pyroscope/pyroscope.yaml` 核对过的：开关为 false 时头被忽略，全部记成 `anonymous`。`config/pyroscope/config.yaml` 打开了这个开关。Grafana 数据源和 demo 的 Pyroscope SDK（`pyroscope-io` 1.2.4 的 `tenant_id`）都发送这个头，同时仍带标签 `cluster`、`tenant`、`business_line`。进程自己的 self-profiling 写 `tenant_id: platform`，因为它推到本进程，不经过网关，多租户打开后必须带头。
 
-Collector `otel/opentelemetry-collector-contrib:0.161.0` 的 `routingconnector` 没有 profiles 路由。该版本 `factory.go` 只注册 `WithTracesToTraces`、`WithMetricsToMetrics`、`WithLogsToLogs`，没有 `WithProfilesToProfiles`。因此 OTLP profiles 管道不能按租户拆 exporter。静态 exporter `otlp/pyroscope` 把 `X-Scope-OrgID` 固定成 `rejected`，避免把所有 OTLP profile 混进 `toc` 或某个 ToB org。按租户隔离的 Profile 走 HTTP SDK 的 `tenant_id`，不走这条 OTLP 管道。
+Collector 镜像是 `otel/opentelemetry-collector-contrib:0.161.0`。该版本 `routingconnector` 的 `factory.go` 只注册 `WithTracesToTraces`、`WithMetricsToMetrics`、`WithLogsToLogs`，没有 profiles 路由。profiles 管道因此不能按租户选择 exporter，也不能给每个租户写不同的 `X-Scope-OrgID`。`config/otel-collector/config.yaml` 里 profiles 管道只有 `memory_limiter` 和 `otlp/pyroscope`，头固定为 `rejected`。这是版本限制，不是配置漏了。
+
+按租户隔离的 Profile 走 Pyroscope HTTP SDK，不走这条 OTLP 管道。支持的变量是 `PYROSCOPE_HTTP_URL`（与 ConfigMap `observability-endpoints` 的键相同）和 `tenant_id`。`tenant_id` 填 org id（`toc`、`tob-acme`、`tob-northwind`），不是标签 `tenant`。实现在 `examples/demo-app/src/demo_app/telemetry.py` 的 `pyroscope_push_settings`。`examples/demo-app/tests/test_server.py` 断言 `PYROSCOPE_HTTP_URL` 优先于旧的 `PYROSCOPE_SERVER_ADDRESS`，并且 `tenant_id` 是 org id。Compose 把 `PYROSCOPE_HTTP_URL` 设为 `http://pyroscope:4040`。Kubernetes 工作负载从同一份 ConfigMap 读取。
 
 禁止进入指标标签的东西：
 
@@ -46,7 +48,7 @@ ToC 忽略调用方传来的任何租户。`BUSINESS_LINE=toc` 时标签永远�
 | 指标 | 应用资源属性，Collector `resource/cluster` 与 `transform/tenancy`，再经 remote write 变成标签 | Prometheus 标签。记录规则 `sum by (cluster, tenant, business_line, service_name)` |
 | 应用日志 | 同上，然后 routing connector 按 `org_id` 选择 exporter | Loki `auth_enabled: true`，头 `X-Scope-OrgID` |
 | 链路 | 同上 | Tempo `multitenancy_enabled: true`，同一个头。span metrics 维度含 `cluster`、`tenant`、`business_line` |
-| Profile | Pyroscope SDK 的 tag，以及 `tenant_id` 写出的 `X-Scope-OrgID` | 服务端 `multitenancy_enabled: true`。OTLP 管道不能按租户选头，见上一节 |
+| Profile | Pyroscope SDK：`PYROSCOPE_HTTP_URL` 加上 `tenant_id`（org id）。标签仍有 `cluster`、`tenant`、`business_line` | 服务端 `multitenancy_enabled: true`。OTLP 管道固定进 org `rejected`，见上一节 |
 | 节点 / Pod 日志 | Alloy 只接受允许表里的 org。对不上的流进 `platform` | Loki org `platform`。Pod 标签 `observability.platform/org-id` 必须是 `toc`、`tob-acme`、`tob-northwind` 或 `platform` |
 
 Alertmanager 按 `alertname`、`cluster`、`business_line`、`tenant`、`service_name` 分组。`acme` 的 critical 不会抑制 `northwind` 的 warning，ToC 也不会抑制 ToB。
@@ -88,9 +90,10 @@ SERVICE_ROLE=api
 OTEL_SERVICE_NAME=<服务名>
 CLUSTER_NAME=<集群名>
 OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
+PYROSCOPE_HTTP_URL=http://pyroscope:4040
 ```
 
-`TENANT_ID` 填别的值也会被收成 `consumer`。不要从请求里读用户 id 来填它。
+`TENANT_ID` 填别的值也会被收成 `consumer`。不要从请求里读用户 id 来填它。`PYROSCOPE_HTTP_URL` 是按租户推 Profile 的地址。Collector 的 OTLP profiles 不会进这个 org。
 
 3. `make render-tenancy`。它会重写 Collector 的允许表语句、规则和清单。ToC 只有一个 org `toc`，一般不用新增 Loki 数据源。
 4. 仪表盘用 `business_line="toc"` 和 `tenant="consumer"`，并且带 `cluster`。不要 `sum without (tenant)`。
@@ -121,6 +124,7 @@ OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4317
 - Collector 里该 org 的 `X-Scope-OrgID` exporter 和 routing 表
 - Grafana 数据源 `loki-tob-<id>`、`tempo-tob-<id>`
 - `config/prometheus/rules/tenancy.yml` 里的 `tenant=~` 允许表
+- `deploy/terraform/stacks/attach-existing/generated/grafana-line-alerts.json`：同一批告警，记录规则展开进查询。远端不会创建记录规则名
 - Alloy 里的 org 正则（`config.k8s.alloy` 与 `config.workload.alloy`，检查脚本会比对）
 - `deploy/kubernetes/base/business-workloads.yaml`、prod overlay 的环境补丁，以及 dev overlay 里 `dev_replicas` 对应的副本 patch
 - `deploy/docker-compose/businesses.yml`（仅 `compose: true`）
@@ -134,6 +138,7 @@ TENANT_ID=contoso
 SERVICE_ROLE=admin
 OTEL_SERVICE_NAME=tob-admin
 CLUSTER_NAME=prod-a
+PYROSCOPE_HTTP_URL=<ConfigMap observability-endpoints 的 PYROSCOPE_HTTP_URL>
 ```
 
 Kubernetes 还要打 Pod 标签，Alloy 才不会把 stdout 推进错误的 org：

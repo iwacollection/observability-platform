@@ -62,7 +62,7 @@ Collector 在 0.161 上对 Profile 管道只用 `memory_limiter`。`resource/clu
 
 中心 Prometheus 必须带着 `--web.enable-remote-write-receiver` 启动。Compose 和 `deploy/kubernetes/base/prometheus.yaml` 已经这么写。
 
-这些 URL 在示例 tfvars 里是 `http://prometheus.central.example.invalid:9090/api/v1/write` 这一类。`.invalid` 不会解析到真实主机。接到网络上时换成中心集群的内网地址或内部负载均衡，不要换成公网地址。Collector 的 `tls.insecure: true` 表示明文 HTTP。换成 HTTPS 时要改 `config/otel-collector/config.yaml` 的 tls 段，不要把证书提交进 git。
+这些 URL 在示例 tfvars 里是 `http://prometheus.central.example.invalid:9090/api/v1/write` 这一类。`.invalid` 不会解析到真实主机。接到网络上时换成中心集群的内网地址或内部负载均衡，不要换成公网地址。`stacks/platform` 的工作负载集群把 `exporter_tls_insecure` 默认为 `true`，因为这套中心二进制是明文。`stacks/attach-existing` 的同名变量默认 `false`。Collector 读 `OTEL_EXPORTER_TLS_INSECURE`，配置里的默认也是 `false`。私有 CA 用 `TF_VAR_exporter_tls_ca_pem`，不要把证书提交进 git。
 
 ## 标签合同
 

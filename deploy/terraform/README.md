@@ -16,9 +16,11 @@ YAML 仍是清单来源，Kustomize 负责渲染。人不需要再单独 `kubect
 
 在 `deploy/terraform/stacks/attach-existing` 下操作。这一次 apply 装的是工作负载集群上的命名空间、Alloy、两个副本的 Collector、node-exporter、kube-state-metrics、NetworkPolicy、ConfigMap `observability-endpoints` 和 Secret `ingest-auth`。`manage_grafana = true` 时，还会在现有 Grafana 里登记数据源、`toc-line` 或 `tob-line` 仪表盘，以及该业务线的 Grafana 告警。
 
-不会创建 Prometheus、Loki、Tempo、Pyroscope、Grafana。也不会装中心栈里的 demo 工作负载。应用自己把 OTLP 打到本集群的 `otel-collector.observability.svc:4317`。
+不会创建 Prometheus、Loki、Tempo、Pyroscope、Grafana。`install_demo_workloads` 默认 `false`，不装 demo。设为 `true` 时安装和中心 base 相同的生成工作负载（`demo-app.yaml` 与 `business-workloads.yaml`）。应用自己把 OTLP 打到本集群的 `otel-collector.observability.svc:4317`。
 
-现有 Prometheus 收 remote write，收不了本仓库的规则文件。告警走 Grafana unified alerting，表达式来自 `config/prometheus/rules/tenancy.yml`，记录规则被展开进告警查询。
+现有 Prometheus 收 remote write。本栈不上传 `config/prometheus/rules/tenancy.yml`：没有活着的 Prometheus 就没有可调用的规则 API。`terraform output prometheus_tenancy_rules` 是这份文件。`existing_prometheus_is_repo = true` 时，它已经由 `stacks/platform` 挂进 ConfigMap `prometheus-rules`。Grafana 告警展开同一批表达式。记录规则名不会在远端被创建，`recording_rules_created_remotely` 是 `false`。
+
+`exporter_tls_insecure` 默认 `false`。Loki、Tempo、Pyroscope 的 OTLP 因此对 HTTPS 端点使用 TLS。明文端点才设 `true`。私有 CA 用 `TF_VAR_exporter_tls_ca_pem`，不要提交证书。
 
 ### init、plan、apply
 
@@ -84,7 +86,7 @@ terraform apply
 5. 在 Prometheus 里查 `http_server_request_duration_seconds_count{cluster="<cluster_name>",business_line="<business_line>",tenant="<tenant>"}`。标签是 `rejected` 时，先看 `tenant` 是否在 `config/tenancy.yaml`。
 6. Loki 要带同一个 `X-Scope-OrgID` 查。写进了别的 org，图上会像没有数据。
 7. 数据源 URL 是查询地址。把 remote write 地址填进 Grafana 会查不到。
-8. Collector 日志里如果是 TLS 握手失败：Loki、Tempo、Pyroscope 的 OTLP exporter 仍是 `tls.insecure: true`，只适合明文。HTTPS 端点这条路径还接不上。
+8. Collector 日志里如果是 TLS 握手失败：看 `OTEL_EXPORTER_TLS_INSECURE`。attach 默认 `false`。明文端点把 `exporter_tls_insecure` 设为 `true`。私有 CA 用 Secret `otel-exporter-tls-ca`，不要把 PEM 写进 git。
 9. 仪表盘 uid：ToC 是 `toc-line`，ToB 是 `tob-line`。右上角的集群变量要选 `cluster_name`。
 10. `manage_grafana = false` 的那次 apply 不会创建数据源。数据源在第一份状态里。
 

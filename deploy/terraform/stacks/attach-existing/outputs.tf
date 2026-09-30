@@ -45,5 +45,40 @@ output "manage_grafana" {
 
 output "alert_rule_names" {
   value       = [for rule in local.line_alerts : rule.name]
-  description = "Grafana unified alerting rules for this business line. They are not installed as Prometheus rule files."
+  description = "Grafana unified alerting rules for this business line. They inline tenancy.yml and do not create recording-rule names on the remote Prometheus."
+}
+
+output "prometheus_tenancy_rules" {
+  value       = file(local.rules_file)
+  description = "config/prometheus/rules/tenancy.yml. Codified artifact for this repo's Prometheus. Not uploaded: Prometheus has no rules API this stack can call without a live server. stacks/platform already mounts this file. Recording-rule names inside it are not created by Grafana."
+}
+
+output "prometheus_tenancy_rules_sha256" {
+  value       = filesha256(local.rules_file)
+  description = "sha256 of config/prometheus/rules/tenancy.yml."
+}
+
+output "recording_rule_names" {
+  value       = local.grafana_line_alerts.recording_rule_names
+  description = "Recording-rule names from tenancy.yml. They are not created on the remote Prometheus."
+}
+
+output "recording_rules_created_remotely" {
+  value       = false
+  description = "Always false. Grafana evaluates the inlined expressions. This stack does not create toc:payments:failure_ratio5m or the other recording-rule names on the remote Prometheus."
+}
+
+output "existing_prometheus_is_repo" {
+  value       = var.existing_prometheus_is_repo
+  description = "When true, the existing Prometheus is this repo's binary and already loads prometheus_tenancy_rules via stacks/platform. This output does not perform an upload."
+}
+
+output "install_demo_workloads" {
+  value       = var.install_demo_workloads
+  description = "Whether this apply installs the generated ToC and ToB demo workloads. Default false."
+}
+
+output "exporter_tls_insecure" {
+  value       = var.exporter_tls_insecure
+  description = "Whether collector OTLP exporters to Loki, Tempo, and Pyroscope disable TLS. Default false."
 }

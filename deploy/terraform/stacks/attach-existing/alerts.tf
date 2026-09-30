@@ -1,104 +1,16 @@
 # Alert rules for the selected business line.
 #
-# The existing Prometheus is remote. This stack cannot ship
-# config/prometheus/rules/tenancy.yml into it. The same PromQL is evaluated
-# by Grafana unified alerting. Recording rules from that file are inlined
-# below so the alerts do not depend on toc:payments:failure_ratio5m existing
-# on the remote Prometheus.
-#
-# Names stay aligned with tenancy.yml: TocPaymentFailureRatio,
-# TobInvoiceFailureRatio, TobSeatSaturation, TobApiQuotaHigh.
+# Expressions come from generated/grafana-line-alerts.json, which
+# scripts/render_tenancy.py builds by inlining config/prometheus/rules/tenancy.yml.
+# Recording-rule names such as toc:payments:failure_ratio5m are not created
+# on the remote Prometheus. This stack does not upload the rule file: that
+# would need a live Prometheus, and Prometheus has no rules API. The YAML is
+# output as prometheus_tenancy_rules for the case where the existing system
+# is this repo's Prometheus (the platform stack already mounts that file).
 
 locals {
-  toc_alerts = [
-    {
-      name    = "TocPaymentFailureRatio"
-      pending = "5m"
-      summary = "ToC payment failure ratio is above 10%"
-      expr = trimspace(<<-EOT
-        (
-          sum by (cluster, tenant, business_line, service_name) (
-            rate(business_payments_total{business_line="toc",tenant="${local.toc_tenant}",result="failure"}[5m])
-          )
-          /
-          sum by (cluster, tenant, business_line, service_name) (
-            rate(business_payments_total{business_line="toc",tenant="${local.toc_tenant}"}[5m])
-          )
-        ) > 0.1
-        and
-        sum by (cluster, tenant, business_line, service_name) (
-          rate(business_payments_total{business_line="toc",tenant="${local.toc_tenant}"}[5m])
-        ) > 0.05
-      EOT
-      )
-    },
-  ]
-
-  tob_alerts = [
-    {
-      name    = "TobInvoiceFailureRatio"
-      pending = "5m"
-      summary = "ToB invoice failure ratio is above 10%"
-      expr = trimspace(<<-EOT
-        (
-          sum by (cluster, tenant, business_line, service_name) (
-            rate(business_invoices_total{business_line="tob",tenant=~"${local.tob_tenant_re}",result="failure"}[5m])
-          )
-          /
-          sum by (cluster, tenant, business_line, service_name) (
-            rate(business_invoices_total{business_line="tob",tenant=~"${local.tob_tenant_re}"}[5m])
-          )
-        ) > 0.1
-        and
-        sum by (cluster, tenant, business_line, service_name) (
-          rate(business_invoices_total{business_line="tob",tenant=~"${local.tob_tenant_re}"}[5m])
-        ) > 0.05
-      EOT
-      )
-    },
-    {
-      name    = "TobSeatSaturation"
-      pending = "10m"
-      summary = "ToB seat utilization is above 90%"
-      expr = trimspace(<<-EOT
-        (
-          sum by (cluster, tenant, business_line, service_name, plan) (
-            business_seats_active{business_line="tob",tenant=~"${local.tob_tenant_re}"}
-          )
-          /
-          clamp_min(
-            sum by (cluster, tenant, business_line, service_name, plan) (
-              business_seats_limit{business_line="tob",tenant=~"${local.tob_tenant_re}"}
-            ),
-            1
-          )
-        ) > 0.9
-      EOT
-      )
-    },
-    {
-      name    = "TobApiQuotaHigh"
-      pending = "10m"
-      summary = "ToB API quota utilization is above 90%"
-      expr = trimspace(<<-EOT
-        (
-          sum by (cluster, tenant, business_line, service_name, quota_class) (
-            business_api_quota_used{business_line="tob",tenant=~"${local.tob_tenant_re}"}
-          )
-          /
-          clamp_min(
-            sum by (cluster, tenant, business_line, service_name, quota_class) (
-              business_api_quota_limit{business_line="tob",tenant=~"${local.tob_tenant_re}"}
-            ),
-            1
-          )
-        ) > 0.9
-      EOT
-      )
-    },
-  ]
-
-  line_alerts = var.business_line == "toc" ? local.toc_alerts : local.tob_alerts
+  grafana_line_alerts = jsondecode(file("${path.module}/generated/grafana-line-alerts.json"))
+  line_alerts         = local.grafana_line_alerts.alerts[var.business_line]
 }
 
 resource "grafana_rule_group" "line" {

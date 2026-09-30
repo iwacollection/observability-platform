@@ -49,14 +49,52 @@ write_ingest_secret() {
     --dry-run=client -o yaml | "${kc[@]}" apply -f -
 }
 
+# PEM comes from the environment only. Do not echo it and do not write it
+# into the kustomize tree. An empty value removes a previously applied CA.
+write_exporter_tls_ca() {
+  if [[ ! -v EXPORTER_TLS_CA_PEM ]]; then
+    return 0
+  fi
+  if [[ -z "${EXPORTER_TLS_CA_PEM}" ]]; then
+    if "${kc[@]}" get namespace observability >/dev/null 2>&1; then
+      "${kc[@]}" -n observability delete secret otel-exporter-tls-ca --ignore-not-found
+    fi
+    return 0
+  fi
+  "${kc[@]}" -n observability create secret generic otel-exporter-tls-ca \
+    --from-literal=ca.pem="$EXPORTER_TLS_CA_PEM" \
+    --dry-run=client -o yaml | "${kc[@]}" apply -f -
+}
+
+apply_or_delete_workloads() {
+  local mode="${1:?apply or delete}"
+  if [[ -z "${WORKLOADS_KUSTOMIZE_PATH:-}" ]]; then
+    return 0
+  fi
+  local workloads
+  workloads="$(mktemp)"
+  kustomize build --load-restrictor LoadRestrictionsNone "$WORKLOADS_KUSTOMIZE_PATH" >"$workloads"
+  if [[ "$mode" == "apply" ]]; then
+    "${kc[@]}" apply -f "$workloads"
+  else
+    "${kc[@]}" delete -f "$workloads" --ignore-not-found
+  fi
+  rm -f "$workloads"
+}
+
 if [[ "$action" == "delete" ]]; then
   # Secret ingest-auth on a workload cluster is not in the agent kustomization.
   # Delete it before the namespace. Prod central's copy is a Terraform resource.
   if [[ "${DELETE_INGEST_SECRET:-}" == "true" ]]; then
     if "${kc[@]}" get namespace observability >/dev/null 2>&1; then
       "${kc[@]}" -n observability delete secret ingest-auth --ignore-not-found
+      "${kc[@]}" -n observability delete secret otel-exporter-tls-ca --ignore-not-found
     fi
   fi
+  # Demo workloads are not in the agent manifest. Delete them before the
+  # namespace so a later apply with the flag off does not leave them behind
+  # on destroy. Missing objects are ignored.
+  apply_or_delete_workloads delete
   "${kc[@]}" delete -f "$manifest" --ignore-not-found
   if [[ "${DELETE_ENDPOINTS:-}" == "true" ]]; then
     "${kc[@]}" -n observability delete configmap observability-endpoints --ignore-not-found
@@ -84,6 +122,8 @@ if [[ -n "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
     --from-literal=TENANT="${ENDPOINTS_TENANT:-}" \
     --from-literal=BUSINESS_LINE="${ENDPOINTS_BUSINESS_LINE:-}" \
     --from-literal=ORG_ID="${ENDPOINTS_ORG_ID:-}" \
+    --from-literal=OTEL_EXPORTER_TLS_INSECURE="${ENDPOINTS_EXPORTER_TLS_INSECURE:-false}" \
+    --from-literal=OTEL_EXPORTER_TLS_CA_FILE="${ENDPOINTS_EXPORTER_TLS_CA_FILE:-}" \
     --dry-run=client -o yaml | "${kc[@]}" apply -f -
 fi
 
@@ -119,6 +159,15 @@ fi
 # After the overlay apply, so a dev placeholder does not clobber TF_VAR_ingest_token.
 # Provider mode (prod central) does not create the Secret here.
 write_ingest_secret
+write_exporter_tls_ca
+
+# Unset leaves central workloads alone. "true" installs the generated demo
+# businesses. "false" removes them from this workload cluster.
+if [[ "${INSTALL_DEMO_WORKLOADS:-}" == "true" ]]; then
+  apply_or_delete_workloads apply
+elif [[ "${INSTALL_DEMO_WORKLOADS:-}" == "false" ]]; then
+  apply_or_delete_workloads delete
+fi
 
 if [[ -n "${ENDPOINTS_CLUSTER_NAME:-}" ]]; then
   "${kc[@]}" -n observability rollout restart daemonset/alloy deployment/otel-collector

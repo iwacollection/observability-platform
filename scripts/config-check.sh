@@ -20,6 +20,7 @@ note "local tenancy and exemplars"
 python3 - <<'PY'
 import json
 import pathlib
+import re
 import sys
 
 import yaml
@@ -112,8 +113,67 @@ if "X-Scope-OrgID: rejected" not in collector:
 if "otlp/pyroscope_acme:" in collector:
     errors.append("collector claims a per-tenant pyroscope route the 0.161 routing connector cannot do")
 telemetry = (root / "examples/demo-app/src/demo_app/telemetry.py").read_text()
-if "tenant_id=org_id" not in telemetry:
-    errors.append("demo SDK does not send the Pyroscope org id")
+if "def pyroscope_push_settings" not in telemetry or 'os.environ.get("PYROSCOPE_HTTP_URL"' not in telemetry:
+    errors.append("demo SDK does not use PYROSCOPE_HTTP_URL as the per-tenant profile path")
+if 'tenant_id=settings["tenant_id"]' not in telemetry:
+    errors.append("demo SDK does not send tenant_id from pyroscope_push_settings")
+if re.search(r"(?m)^\s*insecure:\s+true\s*$", collector):
+    errors.append("collector hardcodes tls insecure true")
+if "${env:OTEL_EXPORTER_TLS_INSECURE:-false}" not in collector:
+    errors.append("collector TLS insecure flag is not the env default false")
+compose_main = (root / "deploy/docker-compose/docker-compose.yml").read_text()
+if 'OTEL_EXPORTER_TLS_INSECURE: "true"' not in compose_main:
+    errors.append("local compose does not set the explicit plaintext TLS flag")
+endpoints = (root / "deploy/kubernetes/base/endpoints.yaml").read_text()
+if 'OTEL_EXPORTER_TLS_INSECURE: "true"' not in endpoints:
+    errors.append("central endpoints ConfigMap missing explicit plaintext TLS flag")
+attach_vars = (root / "deploy/terraform/stacks/attach-existing/variables.tf").read_text()
+if 'variable "exporter_tls_insecure"' not in attach_vars or "default     = false" not in attach_vars.split('variable "exporter_tls_insecure"', 1)[1].split('variable "', 1)[0]:
+    errors.append("attach-existing exporter_tls_insecure does not default to false")
+if 'variable "install_demo_workloads"' not in attach_vars or "default     = false" not in attach_vars.split('variable "install_demo_workloads"', 1)[1].split('variable "', 1)[0]:
+    errors.append("attach-existing install_demo_workloads does not default to false")
+alerts = json.loads((root / "deploy/terraform/stacks/attach-existing/generated/grafana-line-alerts.json").read_text())
+if alerts.get("recording_rules_created_remotely") is not False:
+    errors.append("attach grafana alerts claim recording rules are created remotely")
+rules = yaml.safe_load((root / "config/prometheus/rules/tenancy.yml").read_text())
+record_names = []
+for group in rules["groups"]:
+    for rule in group["rules"]:
+        if "record" in rule:
+            record_names.append(rule["record"])
+if alerts.get("recording_rule_names") != record_names:
+    errors.append("attach grafana recording_rule_names drifted from tenancy.yml")
+for line_name, items in (alerts.get("alerts") or {}).items():
+    if not items:
+        errors.append(f"attach grafana alerts missing {line_name}")
+    for item in items:
+        for name in record_names:
+            if name in item["expr"]:
+                errors.append(f"{item['name']} still references recording rule {name}")
+outputs = (root / "deploy/terraform/stacks/attach-existing/outputs.tf").read_text()
+if "recording_rules_created_remotely" not in outputs or "prometheus_tenancy_rules" not in outputs:
+    errors.append("attach stack does not output the tenancy rule artifact")
+workloads_k = (root / "deploy/kubernetes/agent-workloads/kustomization.yaml").read_text()
+if "demo-app.yaml" not in workloads_k or "business-workloads.yaml" not in workloads_k:
+    errors.append("agent-workloads kustomization is not the generated demo set")
+agent_k = (root / "deploy/kubernetes/agent/kustomization.yaml").read_text()
+if "business-workloads.yaml" in agent_k or "demo-app.yaml" in agent_k:
+    errors.append("default agent kustomization installs demo workloads")
+for path in root.rglob("*"):
+    if not path.is_file() or any(part.startswith(".") or part == ".terraform" for part in path.parts):
+        continue
+    if path.suffix in {".pem", ".crt", ".key"}:
+        errors.append(f"certificate-like file committed: {path}")
+        continue
+    if path.stat().st_size > 1_000_000:
+        continue
+    try:
+        blob = path.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        continue
+    markers = ("BEGIN " + "CERTIFICATE", "BEGIN " + "PRIVATE KEY")
+    if any(marker in blob for marker in markers):
+        errors.append(f"PEM material committed: {path}")
 
 agent = (root / "deploy/kubernetes/agent/kustomization.yaml").read_text()
 if "count: 2" not in agent:
@@ -290,6 +350,7 @@ if command -v kustomize >/dev/null 2>&1; then
   kustomize build --load-restrictor LoadRestrictionsNone "$root/deploy/kubernetes/overlays/dev" >/tmp/observability-dev.yaml || die "kustomize dev"
   kustomize build --load-restrictor LoadRestrictionsNone "$root/deploy/kubernetes/overlays/prod" >/tmp/observability-prod.yaml || die "kustomize prod"
   kustomize build --load-restrictor LoadRestrictionsNone "$root/deploy/kubernetes/agent" >/tmp/observability-agent.yaml || die "kustomize agent"
+  kustomize build --load-restrictor LoadRestrictionsNone "$root/deploy/kubernetes/agent-workloads" >/tmp/observability-agent-workloads.yaml || die "kustomize agent workloads"
   python3 - <<'PY'
 from pathlib import Path
 text = Path("/tmp/observability-dev.yaml").read_text()
@@ -364,6 +425,14 @@ missing_agent = [n for n in (
 ) if n not in agent]
 if "\n  name: prometheus\n" in agent:
     missing_agent.append("agent overlay includes central prometheus")
+if "\n  name: demo-app\n" in agent or "\n  name: toc-checkout\n" in agent:
+    missing_agent.append("default agent overlay includes demo workloads")
+workloads = Path("/tmp/observability-agent-workloads.yaml").read_text()
+for name in ("demo-app", "toc-checkout", "tob-admin-acme", "tob-billing-acme", "tob-admin-northwind", "tob-billing-northwind"):
+    if f"\n  name: {name}\n" not in workloads:
+        missing_agent.append(f"agent-workloads missing {name}")
+if "key: PYROSCOPE_HTTP_URL" not in workloads:
+    missing_agent.append("agent-workloads demo does not read PYROSCOPE_HTTP_URL")
 if missing_agent:
     raise SystemExit("agent overlay problem: " + ", ".join(missing_agent))
 print("kustomize overlays rendered")

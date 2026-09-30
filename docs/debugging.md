@@ -110,7 +110,7 @@ curl -sG 'http://127.0.0.1:3100/loki/api/v1/query' \
 2. 应用 OTLP 指向 `otel-collector:4317`。Tempo 自己的 OTLP `4317/4318` 没有映射到宿主机，避免和 Collector 抢端口。
 3. 尾部采样在 Collector 的 traces 管道里，`decision_wait: 5s`。成功的 trace 也会晚大约 5 秒才出现。错误 span（`/api/error`）和慢于 500ms 的 span 由单独的策略保留。
 4. 现在 `sampling_percentage: 100`，所以不是采样把 trace 丢掉。如果有人把它改成 10，成功请求会缺，错误请求还在。这是采样偏差，不是导出失败。
-5. Collector 到 Tempo 的 exporter 是 `otlp/tempo`，`tempo:4317`，`tls.insecure: true`。
+5. Collector 到 Tempo 的 exporter 是 `otlp/tempo_*`，默认端点 `tempo:4317`。本地 Compose 把 `OTEL_EXPORTER_TLS_INSECURE` 设为 `true`（明文）。配置文件里的默认是 `false`，`stacks/attach-existing` 也默认 `false`，这样现有 HTTPS 端点走 TLS。不要把 CA 证书提交进 git。
 6. Tempo 的 span metrics 远程写回 Prometheus，名字是 `traces_spanmetrics_*` 和 `traces_service_graph_request_total`。Traces 仪表盘读的是这些，不是应用直方图。
 
 在 Prometheus 看 Tempo 是否在收：
@@ -122,9 +122,9 @@ sum by (reason) (rate(tempo_discarded_spans_total[5m]))
 
 ## 没有 Profile
 
-1. demo 的主路径是 Pyroscope SDK：`PYROSCOPE_SERVER_ADDRESS=http://pyroscope:4040`。选择器 `{service_name="demo-app"}`。
-2. `/api/work?burn_ms=40` 会进 `burn_cpu`。火焰图为空时先确认这个环境变量，再确认 Pyroscope 进程。
-3. OTLP profiles 走 Collector 的 profiles 管道，只经过 `memory_limiter`，exporter 是 `otlp/pyroscope` 的 gRPC `pyroscope:4040`。这条管道在 0.161 需要 `--feature-gates=service.profilesSupport`。
+1. 按租户看火焰图走 Pyroscope SDK：`PYROSCOPE_HTTP_URL=http://pyroscope:4040`，`tenant_id` 是 org id。ToC api 的选择器是 `{service_name="toc-api", tenant="consumer", cluster="local"}`，数据源 org 是 `toc`。不要在 org `rejected` 里找它。
+2. `/api/work?burn_ms=40` 会进 `burn_cpu`。火焰图为空时先确认 `PYROSCOPE_HTTP_URL`，再确认 Pyroscope 进程在听 `4040`。
+3. OTLP profiles 走 Collector 的 profiles 管道，只经过 `memory_limiter`，exporter 是 `otlp/pyroscope`，头固定 `X-Scope-OrgID: rejected`。Collector `0.161.0` 的 routing connector 不能按租户拆 profiles。这条管道需要 `--feature-gates=service.profilesSupport`。空的业务火焰图如果只查了 `rejected` 以外的 org，先改查 SDK 那条路径。
 4. 丢弃看 `pyroscope_discarded_samples_total` 的 `reason`（例如 `rate_limited`、`label_name_too_long`）。
 
 ## 告警不触发

@@ -15,7 +15,6 @@ locals {
   tob_tenant_ids = [
     for tenant in local.tenancy.business_lines.tob.tenants : tenant.id
   ]
-  tob_tenant_re = join("|", local.tob_tenant_ids)
 
   toc_dashboard_path = "${path.module}/../../../../config/grafana/dashboards/toc-line.json"
   tob_dashboard_path = "${path.module}/../../../../config/grafana/dashboards/tob-line.json"
@@ -107,6 +106,15 @@ resource "terraform_data" "attach_contract" {
       error_message = "pyroscope_url must be an http(s) URL with a host and port and no path, so the OTLP host:port can be derived."
     }
     precondition {
+      condition = !var.exporter_tls_insecure || (
+        !startswith(local.loki_otlp_endpoint, "https://") &&
+        !startswith(var.pyroscope_url, "https://") &&
+        !startswith(var.loki_push_url, "https://") &&
+        !startswith(var.prometheus_remote_write_url, "https://")
+      )
+      error_message = "exporter_tls_insecure=true disables TLS on the collector OTLP exporters. Leave it false (the default) when the existing ingest URLs are https."
+    }
+    precondition {
       condition = !strcontains(join(" ", [
         var.prometheus_remote_write_url,
         var.loki_push_url,
@@ -141,6 +149,9 @@ module "agent" {
   tenant                      = var.tenant
   business_line               = var.business_line
   org_id                      = var.org_id
+  exporter_tls_insecure       = var.exporter_tls_insecure
+  exporter_tls_ca_pem         = var.exporter_tls_ca_pem
+  install_demo_workloads      = var.install_demo_workloads
 
   depends_on = [terraform_data.attach_contract]
 }

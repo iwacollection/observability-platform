@@ -333,14 +333,29 @@ def check_attach(errors: list[str]) -> None:
         'var.business_line == "toc"',
         "X-Scope-OrgID",
         "Authorization",
-        "TocPaymentFailureRatio",
-        "TobInvoiceFailureRatio",
-        "TobSeatSaturation",
-        "TobApiQuotaHigh",
         'output "creates_backends"',
+        "var.exporter_tls_insecure",
+        "var.install_demo_workloads",
+        "prometheus_tenancy_rules",
+        "recording_rules_created_remotely",
+        "grafana-line-alerts.json",
     ):
         if needle not in tf:
             errors.append(f"attach-existing stack does not reference {needle}")
+    generated = stack / "generated" / "grafana-line-alerts.json"
+    if not generated.is_file():
+        errors.append("attach-existing is missing generated/grafana-line-alerts.json")
+    else:
+        generated_text = generated.read_text()
+        for needle in (
+            "TocPaymentFailureRatio",
+            "TobInvoiceFailureRatio",
+            "TobSeatSaturation",
+            "TobApiQuotaHigh",
+            '"recording_rules_created_remotely": false',
+        ):
+            if needle not in generated_text:
+                errors.append(f"attach grafana alert artifact missing {needle}")
     if not re.search(r'output "creates_backends"[\s\S]*?value\s*=\s*false', tf):
         errors.append("attach-existing creates_backends must stay false")
     for banned in ("modules/central", "hashicorp/kubernetes"):
@@ -373,10 +388,20 @@ def check_attach(errors: list[str]) -> None:
         errors.append("collector is missing transform/attach_identity for tenant and business_line")
     agent = (ROOT / "deploy/terraform/modules/cluster_agent/main.tf").read_text()
     script = (ROOT / "deploy/terraform/scripts/kubectl-apply.sh").read_text()
-    for needle in ("ENDPOINTS_TENANT", "ENDPOINTS_BUSINESS_LINE", "ENDPOINTS_ORG_ID", "var.tenant", "var.ingest_token"):
+    for needle in (
+        "ENDPOINTS_TENANT",
+        "ENDPOINTS_BUSINESS_LINE",
+        "ENDPOINTS_ORG_ID",
+        "ENDPOINTS_EXPORTER_TLS_INSECURE",
+        "INSTALL_DEMO_WORKLOADS",
+        "var.tenant",
+        "var.ingest_token",
+        "var.exporter_tls_insecure",
+        "var.install_demo_workloads",
+    ):
         if needle not in agent:
             errors.append(f"cluster_agent no longer passes {needle} into the rendered agent")
-    for needle in ("TENANT", "BUSINESS_LINE", "ORG_ID"):
+    for needle in ("TENANT", "BUSINESS_LINE", "ORG_ID", "OTEL_EXPORTER_TLS_INSECURE", "INSTALL_DEMO_WORKLOADS"):
         if needle not in script:
             errors.append(f"kubectl-apply.sh does not write {needle} into observability-endpoints")
 

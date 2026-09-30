@@ -7,7 +7,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: toc-checkout
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
@@ -31,7 +31,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: tob-admin
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
@@ -55,7 +55,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: tob-billing
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
@@ -79,7 +79,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: tob-admin
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
@@ -103,7 +103,7 @@ services:
     environment:
       OTEL_SERVICE_NAME: tob-billing
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
       INGEST_TOKEN: ${INGEST_TOKEN:-dev-ingest-token}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local

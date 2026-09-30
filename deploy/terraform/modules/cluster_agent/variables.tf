@@ -105,3 +105,22 @@ variable "org_id" {
     error_message = "org_id must be empty or a DNS label such as toc or tob-acme."
   }
 }
+
+variable "exporter_tls_insecure" {
+  type        = bool
+  default     = false
+  description = "Plaintext for the collector's Loki, Tempo, and Pyroscope OTLP exporters. False uses TLS (system roots, or exporter_tls_ca_pem). True is only for an explicit plaintext endpoint. The platform stack sets true because its central binaries are plaintext. attach-existing defaults to false."
+}
+
+variable "exporter_tls_ca_pem" {
+  type        = string
+  default     = null
+  sensitive   = true
+  description = "Optional PEM CA for the OTLP exporters. Written to Secret otel-exporter-tls-ca. Never commit the PEM. Ignored when exporter_tls_insecure is true."
+}
+
+variable "install_demo_workloads" {
+  type        = bool
+  default     = false
+  description = "When true, install the generated ToC and ToB demo workloads from deploy/kubernetes/base. Default false. The platform stack leaves this false; workloads there come from the central overlay."
+}

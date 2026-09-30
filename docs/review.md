@@ -132,3 +132,60 @@ Remote write、Loki、Tempo、Pyroscope 都没有认证。Postgres 是 `trust`�
 - OTLP profiles 在 collector 0.161 上不能按租户分头。
 - 组件之间没有 mTLS。prod 的 `ingest-auth` 只在设置 `TF_VAR_ingest_token` 并 `terraform apply` 之后存在。example 文件不参与 apply。
 - Prometheus 没有换成 Mimir。
+
+## 9. 2026-09-30 对照验收标准
+
+检视的是当时工作区里的文件，不是提交说明。下面先写当时的结论，再写这次改动落在哪个文件。判定以改完后的树为准。
+
+### 1. 可观测设施是代码
+
+判定：满足。
+
+指标、日志、链路、Profile、告警、仪表盘、采集、Compose、Kubernetes、Terraform 都有对应文件：`config/prometheus/`、`config/loki/loki.yaml`、`config/tempo/tempo.yaml`、`config/pyroscope/config.yaml`、`config/prometheus/rules/`、`config/grafana/dashboards/`、`config/otel-collector/config.yaml`、`config/alloy/`、`deploy/docker-compose/docker-compose.yml`、`deploy/kubernetes/`、`deploy/terraform/stacks/platform`、`deploy/terraform/stacks/attach-existing`。
+
+### 2. 五层监控
+
+判定：满足。
+
+| 层 | 记录规则 | 告警 | 仪表盘 | 采集 |
+| --- | --- | --- | --- | --- |
+| 基础设施 | `recording.yml` 的 `infrastructure-recording` | `alerts.yml` 的 `layer: infrastructure` | `infrastructure.json` | node-exporter、kube-state-metrics |
+| 中间件 | `middleware-recording` | `layer: middleware` | `middleware.json` | `deploy/kubernetes/base/middleware.yaml` |
+| 应用 | `application-recording` | `layer: application` | `application.json` | Collector OTLP |
+| 业务 | `business-recording` 和 `tenancy.yml` | `layer: business` | `business.json`、`toc-line.json`、`tob-line.json` | demo 的业务指标 |
+| 平台自身 | `meta-recording` | `layer: meta` | `meta.json` | Collector `:8888`、各后端 `/metrics` |
+
+### 3. 简体中文文档
+
+判定：满足。`docs/debugging.md`、`docs/onboarding.md`、`docs/processing.md`、`docs/data-skew.md` 使用本仓库的端口和指标名。这次改过的句子与当前变量一致：`PYROSCOPE_HTTP_URL`、`OTEL_EXPORTER_TLS_INSECURE`、Collector `0.161.0`。
+
+### 4. 多集群，`cluster` 是低基数身份
+
+判定：满足。`config/tenancy.yaml` 的示例集群是 `local`、`prod-a`、`prod-b`。记录规则的 `by` 保留 `cluster`。`deploy/terraform/stacks/platform` 的 `workload_clusters` 以集群名做键。
+
+### 5. 多业务，ToC 与 ToB 隔离
+
+判定：满足。ToC 有 `toc-api` 和 `toc-checkout`。ToB 有 `tob-admin` 和 `tob-billing`，租户 `acme` 与 `northwind`。`config/prometheus/rules/tenancy.yml` 的聚合带着 `tenant`，ToC 选择器不包含 ToB。
+
+### 6. Terraform 是安装入口
+
+判定：满足。`stacks/platform` 安装平台。`stacks/attach-existing` 的 `creates_backends` 输出是 `false`，不创建 Prometheus、Loki、Tempo、Pyroscope、Grafana。
+
+### 7. 接到已有后端
+
+当时是部分满足。端点、租户、口令、仪表盘、告警已经是变量，URL 校验拒绝 `observability.svc`，`scripts/terraform-check.sh` 对两个栈做 `terraform validate`。缺的是：OTLP `tls.insecure: true` 写死、远端 Prometheus 拿不到 `tenancy.yml`、attach 不能装 demo 工作负载。
+
+这次改了什么：
+
+- `config/otel-collector/config.yaml` 的 Loki、Tempo、Pyroscope OTLP exporter 改为 `insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}`。Compose 和中心 ConfigMap `observability-endpoints` 显式写 `true`。`stacks/attach-existing` 的 `exporter_tls_insecure` 默认 `false`。私有 CA 只来自 `TF_VAR_exporter_tls_ca_pem`，仓库里没有 PEM。
+- `generated/grafana-line-alerts.json` 由 `scripts/render_tenancy.py` 从 `tenancy.yml` 展开。Grafana 告警使用这些表达式，不再引用记录规则名。输出 `prometheus_tenancy_rules` 是规则文件本身。没有活着的 Prometheus，就不能上传规则，所以 `recording_rules_created_remotely` 固定为 `false`。`existing_prometheus_is_repo = true` 只表示这份文件已经由 `stacks/platform` 挂进 ConfigMap `prometheus-rules`。
+- `install_demo_workloads` 默认 `false`。为 `true` 时 `kubectl-apply.sh` 应用 `deploy/kubernetes/agent-workloads`，内容是生成的 `demo-app.yaml` 和 `business-workloads.yaml`。默认的 agent kustomization 不含它们。
+- Profile：Collector 0.161.0 的 routing connector 仍然没有 profiles 路由，OTLP 固定进 org `rejected`。demo 的支持路径是 `PYROSCOPE_HTTP_URL` 加 `tenant_id`（org id）。单测在 `examples/demo-app/tests/test_server.py`。
+
+### 仍然成立的限制
+
+- Prometheus、Loki、Tempo、Pyroscope 仍是单进程本地盘。没有把副本数改成 2。那不是 HA。
+- 工作负载 Collector 的两个副本各自做 tail sampling，不是全局采样。
+- OTLP profiles 在 0.161.0 上不能按租户设置 `X-Scope-OrgID`。没有升级 Collector 来假装修好。
+- 没有 mTLS。没有把 Prometheus 换成 Mimir。
+- 这次没有执行 Docker Compose 启动，也没有对真实集群 `terraform apply`。`make config-check` 只做静态检查。

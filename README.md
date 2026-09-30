@@ -347,7 +347,7 @@ Provisioning 在 `config/grafana/provisioning/`。
 2. Exporter 使用 OTLP。集群内地址是 `http://otel-collector:4317`（gRPC）。本机进程访问 Compose 时用 `http://127.0.0.1:4317`。
 3. HTTP 服务端延迟使用语义约定直方图 `http.server.request.duration`，单位秒。属性用 `http.route`、`http.request.method`、`http.response.status_code`。不要把完整 URL 当标签。
 4. 日志打成 JSON，并带上当前 span 的 `trace_id` / `span_id`。同时用 OTLP log exporter，这样日志走 Collector，而不是只靠捞 stdout。
-5. Profile：已经能发 OTLP profiles 的运行时指向 Collector `4317`。Python / Go 的 Pyroscope SDK 则设置 `PYROSCOPE_SERVER_ADDRESS=http://pyroscope:4040`，应用名与 `service.name` 相同，并加标签 `service_name`。
+5. Profile：OTLP profiles 进 Collector `4317` 后固定写到 Pyroscope org `rejected`（Collector 0.161 不能按租户改 `X-Scope-OrgID`）。按租户的火焰图用 Pyroscope SDK：`PYROSCOPE_HTTP_URL`（Compose 是 `http://pyroscope:4040`），`tenant_id` 填 org id，应用名与 `service.name` 相同，并加标签 `service_name`。
 6. 健康检查路径如果会高频调用，在 SLO 规则里排除。本仓库排除的是 `/healthz`。
 
 Demo 对照（`examples/demo-app`）：
@@ -361,7 +361,7 @@ Demo 对照（`examples/demo-app`）：
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | 例如 `http://otel-collector:4317` |
 | `OTEL_METRIC_EXPORT_INTERVAL` | 毫秒，本地默认 5000 |
 | `DEPLOYMENT_ENVIRONMENT` | 资源属性 `deployment.environment` |
-| `PYROSCOPE_SERVER_ADDRESS` | 空则不推 profile |
+| `PYROSCOPE_HTTP_URL` | 按租户推 profile 的地址。空则不推。旧变量 `PYROSCOPE_SERVER_ADDRESS` 只在前者为空时生效 |
 | `OTEL_ENABLED` | `false` 时 SDK 不导出，单测用 |
 
 路由：
@@ -551,7 +551,7 @@ JSON 在 `config/grafana/dashboards/`。提供者 `config/grafana/provisioning/d
 | Grafana 没有点 | demo 是否在跑，`make load` 是否打过，Collector 日志里 remote write 是否成功 |
 | 有 trace 没有指标 | Prometheus 是否带 `--web.enable-remote-write-receiver`，指标名是否仍是 `http_server_request_duration_seconds` |
 | 有日志没有 trace 跳转 | 日志正文里是否有 `"trace_id":"..."`，数据源派生字段有没有被改掉 |
-| 火焰图为空 | `PYROSCOPE_SERVER_ADDRESS` 是否指向 `http://pyroscope:4040`，选择器是不是 `{service_name="toc-api", tenant="consumer", cluster="local"}` |
+| 火焰图为空 | `PYROSCOPE_HTTP_URL` 是否指向 `http://pyroscope:4040`，选择器是不是 `{service_name="toc-api", tenant="consumer", cluster="local"}`。OTLP profiles 在 org `rejected`，不在业务 org |
 | 只有 ToC 没有 ToB | 数据源是不是 uid `loki` / `tempo`（只查 org `toc`）。ToB 用 `loki-tob-acme`。步骤在 [docs/tenancy.md](docs/tenancy.md) |
 | `TargetDown` | Prometheus 目标页。Compose DNS 和 Kubernetes Service 名必须一致 |
 | 主机面板是空的 | node-exporter 是否起来。告警和仪表盘读 `job="node"`，不是 Alloy 的 `job="alloy-unix"` |

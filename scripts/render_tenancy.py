@@ -135,7 +135,8 @@ def exporters_yaml(data: dict) -> str:
                     "    headers:",
                     f"      X-Scope-OrgID: {org}",
                     "    tls:",
-                    "      insecure: true",
+                    "      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}",
+                    "      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}",
                     f"  otlp/tempo_{suffix}:",
                     "    endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}",
                     "    auth:",
@@ -143,7 +144,8 @@ def exporters_yaml(data: dict) -> str:
                     "    headers:",
                     f"      X-Scope-OrgID: {org}",
                     "    tls:",
-                    "      insecure: true",
+                    "      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}",
+                    "      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}",
                 ]
             )
         )
@@ -369,8 +371,7 @@ def tenant_regex(data: dict) -> str:
     return ids
 
 
-def render_rules(data: dict, check: bool) -> None:
-    path = ROOT / "config" / "prometheus" / "rules" / "tenancy.yml"
+def tenancy_rules_text(data: dict) -> str:
     ids = tenant_regex(data)
     text = f"""# Generated from config/tenancy.yaml by scripts/render_tenancy.py.
 # ToC rules select business_line=toc and tenant=consumer.
@@ -497,8 +498,76 @@ groups:
           description: "{{{{ $labels.cluster }}}} tenant {{{{ $labels.tenant }}}} class {{{{ $labels.quota_class }}}} is above 90% of the quota."
 """
     # The f-string doubled braces so Prometheus keeps Go templates.
-    text = text.replace("{{{{", "{{").replace("}}}}", "}}")
-    write_or_check(path, text, check)
+    return text.replace("{{{{", "{{").replace("}}}}", "}}")
+
+
+def render_rules(data: dict, check: bool) -> None:
+    path = ROOT / "config" / "prometheus" / "rules" / "tenancy.yml"
+    write_or_check(path, tenancy_rules_text(data), check)
+
+
+def render_attach_grafana_alerts(data: dict, check: bool) -> None:
+    """Inline tenancy.yml into Grafana unified alerting.
+
+    stacks/attach-existing cannot upload recording rules to a remote
+    Prometheus without a live server. Grafana therefore evaluates the same
+    expressions directly and must not mention recording-rule names.
+    """
+    document = yaml.safe_load(tenancy_rules_text(data))
+    records: dict[str, str] = {}
+    alerts: list[dict] = []
+    for group in document["groups"]:
+        for rule in group["rules"]:
+            if "record" in rule:
+                records[rule["record"]] = str(rule["expr"]).strip()
+            elif "alert" in rule:
+                alerts.append(rule)
+
+    def inline(expr: str) -> str:
+        rendered = str(expr).strip()
+        for name in sorted(records, key=len, reverse=True):
+            if name in rendered:
+                rendered = rendered.replace(name, "(\n" + records[name] + "\n)")
+        leftover = [name for name in records if name in rendered]
+        if leftover:
+            raise SystemExit("attach grafana expr still references " + ", ".join(leftover))
+        return rendered
+
+    grouped: dict[str, list[dict]] = {"toc": [], "tob": []}
+    for rule in alerts:
+        name = str(rule["alert"])
+        bucket = "toc" if name.startswith("Toc") else "tob"
+        grouped[bucket].append(
+            {
+                "name": name,
+                "pending": str(rule["for"]),
+                "summary": str(rule["annotations"]["summary"]),
+                "expr": inline(rule["expr"]),
+            }
+        )
+    if not grouped["toc"] or not grouped["tob"]:
+        raise SystemExit("attach grafana alerts missing toc or tob")
+    payload = {
+        "recording_rules_created_remotely": False,
+        "recording_rule_names": list(records),
+        "note": (
+            "Grafana evaluates these expressions directly. The recording-rule "
+            "names are not created on the remote Prometheus. When the existing "
+            "Prometheus is this repo's binary, mount config/prometheus/rules/tenancy.yml. "
+            "stacks/platform already does. This stack does not upload rules."
+        ),
+        "alerts": grouped,
+    }
+    path = (
+        ROOT
+        / "deploy"
+        / "terraform"
+        / "stacks"
+        / "attach-existing"
+        / "generated"
+        / "grafana-line-alerts.json"
+    )
+    write_or_check(path, json.dumps(payload, indent=2, ensure_ascii=False) + "\n", check)
 
 
 def compose_service(name: str, service_name: str, role: str, line: str, tenant: str, host_port: int) -> str:
@@ -507,7 +576,7 @@ def compose_service(name: str, service_name: str, role: str, line: str, tenant: 
     environment:
       OTEL_SERVICE_NAME: {service_name}
       OTEL_EXPORTER_OTLP_ENDPOINT: http://otel-collector:4317
-      PYROSCOPE_SERVER_ADDRESS: http://pyroscope:4040
+      PYROSCOPE_HTTP_URL: http://pyroscope:4040
       INGEST_TOKEN: ${{INGEST_TOKEN:-dev-ingest-token}}
       DEPLOYMENT_ENVIRONMENT: local
       CLUSTER_NAME: local
@@ -611,8 +680,11 @@ spec:
               value: {service_name}
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               value: http://otel-collector:4317
-            - name: PYROSCOPE_SERVER_ADDRESS
-              value: http://pyroscope:4040
+            - name: PYROSCOPE_HTTP_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: observability-endpoints
+                  key: PYROSCOPE_HTTP_URL
             - name: INGEST_TOKEN
               valueFrom:
                 secretKeyRef:
@@ -980,11 +1052,24 @@ def check_mirrors(data: dict) -> None:
         if alloy_re not in text or tenant_re not in text:
             raise SystemExit(f"{rel} org/tenant regex drifted from tenancy.yaml ({alloy_re} / {tenant_re})")
     demo = (ROOT / "deploy" / "docker-compose" / "docker-compose.yml").read_text()
-    for needle in ("BUSINESS_LINE: toc", "TENANT_ID: consumer", "OTEL_SERVICE_NAME: toc-api", "SERVICE_ROLE: api"):
+    for needle in (
+        "BUSINESS_LINE: toc",
+        "TENANT_ID: consumer",
+        "OTEL_SERVICE_NAME: toc-api",
+        "SERVICE_ROLE: api",
+        "PYROSCOPE_HTTP_URL: http://pyroscope:4040",
+    ):
         if needle not in demo:
             raise SystemExit(f"docker-compose.yml demo-app missing {needle}")
     manifest = (ROOT / "deploy" / "kubernetes" / "base" / "demo-app.yaml").read_text()
-    for needle in ("value: toc-api", "value: toc", "value: consumer", "value: api", "observability.platform/org-id: toc"):
+    for needle in (
+        "value: toc-api",
+        "value: toc",
+        "value: consumer",
+        "value: api",
+        "observability.platform/org-id: toc",
+        "key: PYROSCOPE_HTTP_URL",
+    ):
         if needle not in manifest:
             raise SystemExit(f"demo-app.yaml missing {needle}")
 
@@ -995,6 +1080,7 @@ def main() -> None:
     render_collector(data, check)
     render_datasources(data, check)
     render_rules(data, check)
+    render_attach_grafana_alerts(data, check)
     render_compose(data, check)
     render_workloads(data, check)
     render_dashboards(data, check)

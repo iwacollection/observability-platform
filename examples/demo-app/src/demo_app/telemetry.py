@@ -301,6 +301,41 @@ def _configure_process_metrics(logger: logging.Logger) -> None:
         logger.warning("process runtime metrics disabled: %s", exc)
 
 
+def pyroscope_server_address() -> str:
+    """Per-tenant profile push address.
+
+    PYROSCOPE_HTTP_URL is the supported variable. It is the same key as
+    ConfigMap observability-endpoints. PYROSCOPE_SERVER_ADDRESS remains a
+    fallback for an older process environment.
+    """
+    primary = os.environ.get("PYROSCOPE_HTTP_URL", "").strip()
+    if primary:
+        return primary
+    return os.environ.get("PYROSCOPE_SERVER_ADDRESS", "").strip()
+
+
+def pyroscope_push_settings(org_id: str) -> dict[str, Any] | None:
+    """SDK settings for one org.
+
+    tenant_id is the X-Scope-OrgID (toc, tob-acme, tob-northwind), not the
+    tenant label. Collector 0.161.0 cannot set that header per tenant on
+    the profiles pipeline, so this HTTP push is the supported path.
+    """
+    address = pyroscope_server_address()
+    if not address:
+        return None
+    token = ingest_token()
+    settings: dict[str, Any] = {
+        "server_address": address,
+        "tenant_id": org_id,
+    }
+    if token:
+        settings["http_headers"] = {"Authorization": f"Bearer {token}"}
+    else:
+        settings["http_headers"] = {}
+    return settings
+
+
 def _configure_pyroscope(
     logger: logging.Logger,
     service_name: str,
@@ -310,20 +345,19 @@ def _configure_pyroscope(
     tenant: str,
     org_id: str,
 ) -> None:
-    address = os.environ.get("PYROSCOPE_SERVER_ADDRESS", "").strip()
-    if not address:
+    settings = pyroscope_push_settings(org_id)
+    if settings is None:
         return
     try:
         import pyroscope
 
-        token = ingest_token()
         # tenant_id is X-Scope-OrgID (pyroscope-io 1.2.4). http_headers carries
         # the ingest bearer token; the SDK has no separate bearer argument.
         pyroscope.configure(
             application_name=service_name,
-            server_address=address,
-            tenant_id=org_id,
-            http_headers={"Authorization": f"Bearer {token}"} if token else {},
+            server_address=settings["server_address"],
+            tenant_id=settings["tenant_id"],
+            http_headers=settings["http_headers"],
             tags={
                 "service_name": service_name,
                 "deployment_environment": environment,

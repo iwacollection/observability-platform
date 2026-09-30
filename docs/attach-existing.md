@@ -9,7 +9,7 @@
 | 目录 | `deploy/terraform/stacks/platform` | `deploy/terraform/stacks/attach-existing` |
 | 什么时候 | Prometheus、Loki、Tempo、Pyroscope、Grafana 由我们安装 | 这五样已经在别处 |
 | apply 会创建 | 中心栈里的全部平台组件，外加每个工作负载集群的 agent | 只有工作负载集群的 agent。`manage_grafana = true` 时再登记数据源、一块已有仪表盘、一组 Grafana 告警 |
-| apply 不会创建 | — | Prometheus、Loki、Tempo、Pyroscope、Grafana，以及 demo 工作负载 |
+| apply 不会创建 | — | Prometheus、Loki、Tempo、Pyroscope、Grafana。`install_demo_workloads` 默认 `false`，所以默认也不装 demo 工作负载 |
 | kubeconfig | 中心集群，加上 `prod-a`、`prod-b` | 只有这一份工作负载集群的 `kubeconfig` |
 | 口令 | `TF_VAR_ingest_token`，prod 中心必填。Grafana 管理员密码是 `TF_VAR_grafana_admin_password` | `TF_VAR_ingest_token` 必填。登记 Grafana 时还要 `TF_VAR_grafana_auth` |
 
@@ -40,7 +40,7 @@ Agent 把 `cluster`、`tenant`、`business_line` 送到你填的地址，并带 
 
 - 数据源的 HTTP 头保留 `X-Scope-OrgID` 和 `Authorization`（`Bearer` 加上口令）
 - 仪表盘是仓库里现成的 JSON：`business_line = toc` 用 `config/grafana/dashboards/toc-line.json`（uid `toc-line`），`tob` 用 `tob-line.json`（uid `tob-line`）
-- 告警是该业务线在 `config/prometheus/rules/tenancy.yml` 里的规则，经 Grafana unified alerting 下发
+- 告警是该业务线在 `config/prometheus/rules/tenancy.yml` 里的规则，经 Grafana unified alerting 下发。表达式来自生成文件 `deploy/terraform/stacks/attach-existing/generated/grafana-line-alerts.json`，记录规则已经展开，查询不依赖 `toc:payments:failure_ratio5m` 这种名字
 
 ToC 的数据源 uid 是 `prometheus`、`loki`、`tempo`、`pyroscope`。ToB 仪表盘还要 `prometheus-tob-<id>` 和 `loki-tob-<id>`。`business_line = tob` 时，目录里每个 ToB 租户的 Prometheus、Loki、Tempo、Pyroscope 数据源都会登记，头里的 `X-Scope-OrgID` 是那个租户自己的 `tob-<id>`。这个集群实际写入的仍是变量 `tenant` 和 `org_id`。
 
@@ -52,13 +52,36 @@ ToC 的数据源 uid 是 `prometheus`、`loki`、`tempo`、`pyroscope`。ToB 仪
 - 一个 Pyroscope
 - 一个打开了 HTTP API 的 Grafana
 - 现有系统已经认的那串 Bearer 口令
-- 工作负载集群上的应用会把 OTLP 打到本集群的 `otel-collector.observability.svc:4317`。这条路径不部署 `demo-app`
+- 工作负载集群上的应用会把 OTLP 打到本集群的 `otel-collector.observability.svc:4317`
 
-现有 Prometheus 在远端，不能把 `config/prometheus/rules/*.yml` 拷进去。所以告警不走 Prometheus 规则文件，走 Grafana。`tenancy.yml` 里的记录规则被展开进告警查询，远端不会出现 `toc:payments:failure_ratio5m` 这种记录规则。
+## 两种工作负载模式
 
-Collector 里 Loki、Tempo、Pyroscope 的 OTLP exporter 仍是 `tls.insecure: true`，只适合明文。现有端点如果是 TLS，这条路径还接不上。Prometheus remote write 看 URL 的 scheme，`https://` 会走 TLS。
+`install_demo_workloads` 默认 `false`。
 
-OTLP profiles 仍然进 Pyroscope 的 `rejected` org。Collector 0.161 不能按租户给 profiles 选择 `X-Scope-OrgID`。直接推 Pyroscope HTTP 的 SDK 使用 ConfigMap 里的 `PYROSCOPE_HTTP_URL`，org 由 SDK 自己的 `tenant_id` 决定。
+| 值 | apply 在工作负载集群上多装什么 |
+| --- | --- |
+| `false` | 只有 agent。业务进程由你自己部署，OTLP 打到本集群 Collector |
+| `true` | 再加上和中心 base 相同的生成清单：`deploy/kubernetes/base/demo-app.yaml`（`toc-api`）和 `deploy/kubernetes/base/business-workloads.yaml`（`toc-checkout`、`tob-admin` / `tob-billing` 的 `acme` 与 `northwind`）。kustomization 在 `deploy/kubernetes/agent-workloads`。默认的 `deploy/kubernetes/agent` 不含这些文件 |
+
+副本数是 `config/tenancy.yaml` 的 `replicas`，不是 `dev_replicas`。当前目录里 `acme` 是 1，`northwind` 是 0，所以打开这个开关后 northwind 的 Deployment 存在但没有 Pod。要让它跑起来，先改目录里的 `replicas`，`make render-tenancy`，再 apply。镜像是 `demo-app:local`，集群上要已经有这份镜像。这条路径不会创建 Prometheus 等五个后端。
+
+## 规则文件和 Grafana 告警
+
+现有 Prometheus 在远端。Prometheus 没有可以在不连接活进程的情况下上传规则的 API，所以这次 apply 不上传 `config/prometheus/rules/tenancy.yml`。
+
+这份文件仍然是产物：`terraform output prometheus_tenancy_rules` 打印它，`prometheus_tenancy_rules_sha256` 是摘要。`existing_prometheus_is_repo = true` 表示远端就是本仓库的单二进制 Prometheus。那种情况下规则已经由 `stacks/platform` 挂进 ConfigMap `prometheus-rules` 的键 `tenancy.yml`。这个输出用来核对那份文件，不是再上传一次。
+
+Grafana unified alerting 使用同一批表达式，记录规则被展开进告警查询。`recording_rules_created_remotely` 固定是 `false`。远端不会出现 `toc:http_requests:rate5m`、`toc:payments:failure_ratio5m`、`tob:invoices:failure_ratio5m`、`tob:seats:utilization`、`tob:api_quota:utilization` 这些记录规则名。告警名仍然是 `TocPaymentFailureRatio`、`TobInvoiceFailureRatio`、`TobSeatSaturation`、`TobApiQuotaHigh`。
+
+## TLS
+
+Loki、Tempo、Pyroscope 的 OTLP exporter 读 `OTEL_EXPORTER_TLS_INSECURE`。`stacks/attach-existing` 的变量 `exporter_tls_insecure` 默认 `false`：`https://` 的 Loki 和 Pyroscope 走 TLS，Tempo 与 Pyroscope 的 gRPC（没有 scheme 的 `host:port`）也走 TLS，信任系统根证书。只有明确的明文端点才把这个变量设为 `true`。不要把它和 `https://` 写在一起，plan 会拒绝。
+
+私有 CA 用环境变量 `TF_VAR_exporter_tls_ca_pem`（PEM 文本，sensitive）。apply 把它写进 Secret `otel-exporter-tls-ca`，Collector 挂到 `/etc/otel-exporter-tls/ca.pem`。不要把证书文件提交进 git。留空则用系统信任库。`exporter_tls_insecure = true` 时这份 PEM 不生效。
+
+Prometheus remote write 看 URL 的 scheme。`https://` 走 TLS，不看 `exporter_tls_insecure`。
+
+OTLP profiles 仍然进 Pyroscope 的 `rejected` org。Collector 0.161 不能按租户给 profiles 选择 `X-Scope-OrgID`。按租户的 Profile 走 SDK：`PYROSCOPE_HTTP_URL` 加 `tenant_id`。`install_demo_workloads = true` 时，demo 从 ConfigMap 读 `PYROSCOPE_HTTP_URL`。
 
 ## init、plan、apply
 
@@ -104,7 +127,11 @@ terraform apply
 | `ingest_token` | 是 | 只通过 `TF_VAR_ingest_token` 传入。sensitive |
 | `grafana_auth` | 登记 Grafana 时必填 | 只通过 `TF_VAR_grafana_auth` 传入。sensitive |
 | `manage_grafana` | 否 | 默认 `true`。第二个集群设 `false` |
-| `collector_replicas` | 否 | 默认 `2`，范围 2 到 5 |
+| `collector_replicas` | 否 | 默认 `2`，范围 2 到 5。不增加 Prometheus 等后端的副本 |
+| `exporter_tls_insecure` | 否 | 默认 `false`。明文端点才设 `true` |
+| `exporter_tls_ca_pem` | 否 | 只通过 `TF_VAR_exporter_tls_ca_pem` 传入。不要提交 PEM |
+| `install_demo_workloads` | 否 | 默认 `false`。`true` 时装生成的 ToC/ToB demo |
+| `existing_prometheus_is_repo` | 否 | 默认 `false`。`true` 只表示规则文件由 platform 栈挂载，这里仍不上传 |
 | `prometheus_query_url` | 否 | 查询地址和 remote write 不在同一主机时填写 |
 | `loki_query_url` | 否 | push URL 不是标准后缀时填写 |
 | `loki_otlp_endpoint` | 否 | 默认是 push URL 的源加上 `/otlp`。Collector 再拼 `/v1/logs` |
@@ -168,7 +195,8 @@ ToC 和 ToB 不要在同一个 Grafana 上用两份 `manage_grafana = true` 的�
 7. 序列的 `tenant` 或 `business_line` 是 `rejected`：应用送上来的值不在 `config/tenancy.yaml` 的允许表里。改目录并渲染，或把栈的 `tenant` 改成允许表里的 id。
 8. 仪表盘 uid 是 `toc-line` 或 `tob-line`，在文件夹 `attach-toc` 或 `attach-tob`。右上角集群变量要选中 `cluster_name`。时间范围拉到有流量的那段。
 9. `manage_grafana = false` 不会创建数据源。到 `manage_grafana = true` 的那份状态里看 Grafana 资源。
-10. Collector 日志出现 TLS 错误：这条路径的 Loki / Tempo / Pyroscope OTLP 仍是明文（`tls.insecure: true`）。现有系统只收 HTTPS 时，还不能用这份 exporter 配置。
+10. Collector 日志出现 TLS 错误：看 ConfigMap 的 `OTEL_EXPORTER_TLS_INSECURE`。默认应是 `false`。现有端点是明文时才把 `exporter_tls_insecure` 设为 `true`。私有 CA 看 Secret `otel-exporter-tls-ca` 是否存在，以及 `OTEL_EXPORTER_TLS_CA_FILE` 是否为 `/etc/otel-exporter-tls/ca.pem`。
 11. 应用如果把 OTLP 打到现有 Tempo，而不是本集群的 Collector，`cluster` 标签不会被 gateway 盖成 `cluster_name`。应打到 `otel-collector.observability.svc:4317`。
+12. `install_demo_workloads = false` 时命名空间里没有 `demo-app`。这是默认。设成 `true` 之后应能看到 `toc-checkout` 和 `tob-admin-acme`。`tob-admin-northwind` 的副本数是目录里的 `replicas`（当前是 0）。
 
-Profile 火焰图仍然可能空着：OTLP profiles 进的是 org `rejected`，不进 `org_id`。这是 Collector 版本的限制，不是数据源头漏了。
+Profile 火焰图如果查的是业务 org，OTLP profiles 不在那里，它们在 org `rejected`。SDK 路径用 `PYROSCOPE_HTTP_URL` 和 `tenant_id`。这是 Collector 0.161 的限制。

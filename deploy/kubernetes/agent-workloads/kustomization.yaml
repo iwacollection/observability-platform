@@ -1,0 +1,16 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+# Optional demo businesses for stacks/attach-existing when
+# install_demo_workloads is true. These are the same generated manifests the
+# central base installs. Replica counts come from config/tenancy.yaml
+# (northwind stays at replicas 0 until that catalog field changes).
+# This file is not part of deploy/kubernetes/agent, so the default attach
+# does not install them.
+namespace: observability
+resources:
+  - ../base/demo-app.yaml
+  - ../base/business-workloads.yaml
+labels:
+  - pairs:
+      app.kubernetes.io/part-of: observability-platform
+    includeSelectors: false

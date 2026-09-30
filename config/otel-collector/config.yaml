@@ -17,9 +17,10 @@
 #
 # Export URLs default to the in-cluster DNS names used by Compose and the
 # central stack. Workload clusters set the env vars to the central endpoints.
-# tls.insecure is plaintext. These defaults are http, not https. A TLS
-# gateway in front of the central stack needs this block changed; do not
-# commit certificates.
+# OTEL_EXPORTER_TLS_INSECURE defaults to false so an https ingest works.
+# Compose and this repo's central stack set it to true because those
+# backends are plaintext. OTEL_EXPORTER_TLS_CA_FILE is optional. Do not
+# commit CA certificates. An empty ca_file uses the system trust store.
 
 extensions:
   health_check:
@@ -275,7 +276,8 @@ exporters:
     headers:
       X-Scope-OrgID: toc
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
   otlp/tempo_toc:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
     auth:
@@ -283,7 +285,8 @@ exporters:
     headers:
       X-Scope-OrgID: toc
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
   otlphttp/loki_acme:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
     auth:
@@ -291,7 +294,8 @@ exporters:
     headers:
       X-Scope-OrgID: tob-acme
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
   otlp/tempo_acme:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
     auth:
@@ -299,7 +303,8 @@ exporters:
     headers:
       X-Scope-OrgID: tob-acme
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
   otlphttp/loki_northwind:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
     auth:
@@ -307,7 +312,8 @@ exporters:
     headers:
       X-Scope-OrgID: tob-northwind
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
   otlp/tempo_northwind:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
     auth:
@@ -315,7 +321,8 @@ exporters:
     headers:
       X-Scope-OrgID: tob-northwind
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
   otlphttp/loki_rejected:
     endpoint: ${env:LOKI_OTLP_ENDPOINT:-http://loki:3100/otlp}
     auth:
@@ -323,7 +330,8 @@ exporters:
     headers:
       X-Scope-OrgID: rejected
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
   otlp/tempo_rejected:
     endpoint: ${env:TEMPO_OTLP_ENDPOINT:-tempo:4317}
     auth:
@@ -331,13 +339,17 @@ exporters:
     headers:
       X-Scope-OrgID: rejected
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
 # TENANCY:exporters:end
   # Pyroscope 2.3.1 honors X-Scope-OrgID when multitenancy_enabled is true.
-  # This exporter cannot vary that header: routingconnector v0.161.0 implements
-  # traces, metrics, and logs only (no WithProfilesToProfiles). A static org
-  # here would mix every OTLP profile into one tenant, so this path is the
-  # quarantine org. The HTTP SDK sets the real org via tenant_id. See
+  # This exporter cannot vary that header. otelcol-contrib 0.161.0
+  # routingconnector factory.go registers only WithTracesToTraces,
+  # WithMetricsToMetrics, and WithLogsToLogs. There is no
+  # WithProfilesToProfiles, so the profiles pipeline cannot select an org.
+  # A static org here would mix every OTLP profile into one tenant, so this
+  # path is the quarantine org rejected. The supported per-tenant path is
+  # the Pyroscope HTTP SDK: PYROSCOPE_HTTP_URL plus tenant_id. See
   # docs/tenancy.md.
   otlp/pyroscope:
     endpoint: ${env:PYROSCOPE_OTLP_ENDPOINT:-pyroscope:4040}
@@ -346,7 +358,8 @@ exporters:
     headers:
       X-Scope-OrgID: rejected
     tls:
-      insecure: true
+      insecure: ${env:OTEL_EXPORTER_TLS_INSECURE:-false}
+      ca_file: ${env:OTEL_EXPORTER_TLS_CA_FILE:-}
 
 service:
   extensions: [health_check, zpages, bearertokenauth]

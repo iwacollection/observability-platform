@@ -25,7 +25,12 @@ from demo_app.server import (  # noqa: E402
     make_server,
     route_label,
 )
-from demo_app.telemetry import JsonFormatter, grpc_target, otlp_headers  # noqa: E402
+from demo_app.telemetry import (  # noqa: E402
+    JsonFormatter,
+    grpc_target,
+    otlp_headers,
+    pyroscope_push_settings,
+)
 from opentelemetry import trace  # noqa: E402
 from opentelemetry.sdk.trace import TracerProvider  # noqa: E402
 
@@ -209,6 +214,53 @@ class IdentityTests(unittest.TestCase):
         self.assertEqual(rejected["org_id"], "rejected")
         self.assertNotIn("user-42", rejected.values())
         self.assertEqual(resolve("nope", "acme", "admin")["business_line"], "rejected")
+
+    def test_pyroscope_http_url_is_the_per_tenant_path(self) -> None:
+        previous = {
+            key: os.environ.get(key)
+            for key in ("PYROSCOPE_HTTP_URL", "PYROSCOPE_SERVER_ADDRESS", "INGEST_TOKEN")
+        }
+        try:
+            os.environ["PYROSCOPE_HTTP_URL"] = "https://pyroscope.obs.example.invalid:4040"
+            os.environ["PYROSCOPE_SERVER_ADDRESS"] = "http://pyroscope:4040"
+            os.environ["INGEST_TOKEN"] = "dev-ingest-token"
+            settings = pyroscope_push_settings("tob-acme")
+            assert settings is not None
+            self.assertEqual(settings["server_address"], "https://pyroscope.obs.example.invalid:4040")
+            self.assertEqual(settings["tenant_id"], "tob-acme")
+            self.assertNotEqual(settings["tenant_id"], "acme")
+            self.assertEqual(settings["http_headers"]["Authorization"], "Bearer dev-ingest-token")
+
+            os.environ.pop("PYROSCOPE_HTTP_URL")
+            fallback = pyroscope_push_settings("toc")
+            assert fallback is not None
+            self.assertEqual(fallback["server_address"], "http://pyroscope:4040")
+            self.assertEqual(fallback["tenant_id"], "toc")
+
+            os.environ.pop("PYROSCOPE_SERVER_ADDRESS")
+            os.environ.pop("INGEST_TOKEN")
+            self.assertIsNone(pyroscope_push_settings("toc"))
+        finally:
+            for key, value in previous.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
+
+    def test_collector_0161_profiles_stay_in_rejected(self) -> None:
+        root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", ".."))
+        collector_path = os.path.join(root, "config", "otel-collector", "config.yaml")
+        deployment_path = os.path.join(root, "deploy", "kubernetes", "base", "otel-collector.yaml")
+        with open(collector_path, encoding="utf-8") as handle:
+            text = handle.read()
+        with open(deployment_path, encoding="utf-8") as handle:
+            deployment = handle.read()
+        self.assertIn("otel/opentelemetry-collector-contrib:0.161.0", deployment)
+        self.assertNotIn("routing/profiles", text)
+        self.assertIn("X-Scope-OrgID: rejected", text)
+        profiles = text.split("profiles:", 1)[1].split("# TENANCY:pipelines", 1)[0]
+        self.assertIn("exporters: [otlp/pyroscope]", profiles)
+        self.assertNotIn("routing/", profiles)
 
     def test_otlp_headers_follow_the_ingest_token(self) -> None:
         previous = os.environ.pop("INGEST_TOKEN", None)

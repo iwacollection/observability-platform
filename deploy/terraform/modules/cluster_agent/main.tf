@@ -28,6 +28,9 @@ locals {
       filesha256("${local.repo_root}/deploy/kubernetes/base/kube-state-metrics.yaml"),
       filesha256("${local.repo_root}/deploy/kubernetes/base/namespace.yaml"),
       filesha256("${local.repo_root}/deploy/kubernetes/base/networkpolicy.yaml"),
+      filesha256("${local.repo_root}/deploy/kubernetes/base/demo-app.yaml"),
+      filesha256("${local.repo_root}/deploy/kubernetes/base/business-workloads.yaml"),
+      filesha256("${local.repo_root}/deploy/kubernetes/agent-workloads/kustomization.yaml"),
     ],
   )))
 }
@@ -46,11 +49,12 @@ resource "terraform_data" "agent" {
     when    = destroy
     command = "bash \"${self.input.repo_root}/deploy/terraform/scripts/kubectl-apply.sh\" delete"
     environment = {
-      KUBECONFIG           = self.input.kubeconfig
-      KUBE_CONTEXT         = self.input.kube_context
-      KUSTOMIZE_PATH       = "${self.input.repo_root}/deploy/kubernetes/agent"
-      DELETE_ENDPOINTS     = "true"
-      DELETE_INGEST_SECRET = "true"
+      KUBECONFIG               = self.input.kubeconfig
+      KUBE_CONTEXT             = self.input.kube_context
+      KUSTOMIZE_PATH           = "${self.input.repo_root}/deploy/kubernetes/agent"
+      WORKLOADS_KUSTOMIZE_PATH = "${self.input.repo_root}/deploy/kubernetes/agent-workloads"
+      DELETE_ENDPOINTS         = "true"
+      DELETE_INGEST_SECRET     = "true"
     }
   }
 }
@@ -59,43 +63,51 @@ resource "terraform_data" "agent_apply" {
   depends_on = [terraform_data.agent]
 
   triggers_replace = {
-    checksum           = local.checksum
-    cluster_name       = var.cluster_name
-    kubeconfig         = var.kubeconfig
-    kube_context       = var.kube_context
-    prometheus         = var.prometheus_remote_write_url
-    loki_push          = var.loki_push_url
-    loki_otlp          = var.loki_otlp_endpoint
-    tempo              = var.tempo_otlp_endpoint
-    pyroscope          = var.pyroscope_otlp_endpoint
-    pyroscope_http     = var.pyroscope_http_url
-    collector_replicas = tostring(var.collector_replicas)
-    managed_ids        = join(",", local.managed_ids)
-    tenant             = var.tenant
-    business_line      = var.business_line
-    org_id             = var.org_id
+    checksum               = local.checksum
+    cluster_name           = var.cluster_name
+    kubeconfig             = var.kubeconfig
+    kube_context           = var.kube_context
+    prometheus             = var.prometheus_remote_write_url
+    loki_push              = var.loki_push_url
+    loki_otlp              = var.loki_otlp_endpoint
+    tempo                  = var.tempo_otlp_endpoint
+    pyroscope              = var.pyroscope_otlp_endpoint
+    pyroscope_http         = var.pyroscope_http_url
+    collector_replicas     = tostring(var.collector_replicas)
+    managed_ids            = join(",", local.managed_ids)
+    tenant                 = var.tenant
+    business_line          = var.business_line
+    org_id                 = var.org_id
+    exporter_tls_insecure  = tostring(var.exporter_tls_insecure)
+    exporter_tls_ca_sha    = sha256(coalesce(var.exporter_tls_ca_pem, ""))
+    install_demo_workloads = tostring(var.install_demo_workloads)
     # Sensitive. A new token re-applies Secret ingest-auth on this cluster.
     ingest_token_sha = sha256(coalesce(var.ingest_token, ""))
   }
 
   input = {
-    kubeconfig          = var.kubeconfig
-    kube_context        = var.kube_context
-    cluster_name        = var.cluster_name
-    repo_root           = local.repo_root
-    prometheus          = var.prometheus_remote_write_url
-    loki_push           = var.loki_push_url
-    loki_otlp           = var.loki_otlp_endpoint
-    tempo               = var.tempo_otlp_endpoint
-    pyroscope           = var.pyroscope_otlp_endpoint
-    pyroscope_http      = var.pyroscope_http_url
-    collector_replicas  = tostring(var.collector_replicas)
-    ingest_token        = coalesce(var.ingest_token, "")
-    tenant              = var.tenant
-    business_line       = var.business_line
-    org_id              = var.org_id
-    endpoints_configmap = local.endpoints_configmap_name
-    ingest_secret       = local.ingest_secret_name
+    kubeconfig             = var.kubeconfig
+    kube_context           = var.kube_context
+    cluster_name           = var.cluster_name
+    repo_root              = local.repo_root
+    prometheus             = var.prometheus_remote_write_url
+    loki_push              = var.loki_push_url
+    loki_otlp              = var.loki_otlp_endpoint
+    tempo                  = var.tempo_otlp_endpoint
+    pyroscope              = var.pyroscope_otlp_endpoint
+    pyroscope_http         = var.pyroscope_http_url
+    collector_replicas     = tostring(var.collector_replicas)
+    ingest_token           = coalesce(var.ingest_token, "")
+    tenant                 = var.tenant
+    business_line          = var.business_line
+    org_id                 = var.org_id
+    endpoints_configmap    = local.endpoints_configmap_name
+    ingest_secret          = local.ingest_secret_name
+    exporter_tls_insecure  = var.exporter_tls_insecure ? "true" : "false"
+    exporter_tls_ca_pem    = coalesce(var.exporter_tls_ca_pem, "")
+    exporter_tls_ca_file   = var.exporter_tls_insecure || var.exporter_tls_ca_pem == null || var.exporter_tls_ca_pem == "" ? "" : "/etc/otel-exporter-tls/ca.pem"
+    install_demo_workloads = var.install_demo_workloads ? "true" : "false"
+    workloads_path         = "${local.repo_root}/deploy/kubernetes/agent-workloads"
   }
 
   provisioner "local-exec" {
@@ -114,6 +126,11 @@ resource "terraform_data" "agent_apply" {
       ENDPOINTS_TENANT                      = self.input.tenant
       ENDPOINTS_BUSINESS_LINE               = self.input.business_line
       ENDPOINTS_ORG_ID                      = self.input.org_id
+      ENDPOINTS_EXPORTER_TLS_INSECURE       = self.input.exporter_tls_insecure
+      ENDPOINTS_EXPORTER_TLS_CA_FILE        = self.input.exporter_tls_ca_file
+      EXPORTER_TLS_CA_PEM                   = self.input.exporter_tls_ca_pem
+      INSTALL_DEMO_WORKLOADS                = self.input.install_demo_workloads
+      WORKLOADS_KUSTOMIZE_PATH              = self.input.workloads_path
       WORKLOAD_COLLECTOR_REPLICAS           = self.input.collector_replicas
       INGEST_TOKEN                          = self.input.ingest_token
       INGEST_SECRET_MODE                    = "script"
